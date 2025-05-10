@@ -3,11 +3,13 @@
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 
 return new class extends Migration
 {
     /**
-     * Run the migrations.
+     * Jalankan migrasi database.
      */
     public function up(): void
     {
@@ -17,6 +19,10 @@ return new class extends Migration
             $table->string('email')->unique();
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password');
+            $table->string('otp_code')->nullable(); // Kode OTP untuk verifikasi email
+            $table->timestamp('otp_expires_at')->nullable(); // Waktu kadaluarsa OTP
+            $table->boolean('is_verified')->default(false); // Status verifikasi akun
+            $table->string('role')->default('user'); // Tambahkan role (admin/user)
             $table->rememberToken();
             $table->timestamps();
         });
@@ -35,10 +41,21 @@ return new class extends Migration
             $table->longText('payload');
             $table->integer('last_activity')->index();
         });
+
+        // ✅ Insert admin default
+        DB::table('users')->insert([
+            'name' => 'Admin',
+            'email' => 'admin@example.com',
+            'password' => Hash::make('admin123'), // Ubah password sesuai kebutuhan
+            'role' => 'admin', // Menandakan ini adalah admin
+            'is_verified' => true, // Anggap admin sudah diverifikasi
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 
     /**
-     * Reverse the migrations.
+     * Rollback migrasi database.
      */
     public function down(): void
     {

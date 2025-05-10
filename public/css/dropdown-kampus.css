@@ -1,0 +1,220 @@
+/* Styling untuk custom dropdown kampus dengan desain yang lebih bagus */
+.select-container {
+    position: relative;
+    width: 100%;
+    font-family: 'Poppins', sans-serif;
+    margin-bottom: 1rem;
+}
+
+/* Gaya untuk select box yang terlihat */
+.select-box {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background-color: #fff;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+}
+
+.select-box:hover {
+    border-color: #4a6fdc;
+    box-shadow: 0 2px 8px rgba(74, 111, 220, 0.12);
+}
+
+.select-container.open .select-box {
+    border-color: #4a6fdc;
+    border-radius: 8px 8px 0 0;
+    box-shadow: 0 4px 12px rgba(74, 111, 220, 0.15);
+}
+
+.selected-text {
+    color: #333;
+    font-weight: 500;
+}
+
+.select-box .arrow {
+    color: #666;
+    transition: transform 0.3s ease;
+}
+
+.select-container.open .select-box .arrow {
+    transform: rotate(180deg);
+    color: #4a6fdc;
+}
+
+/* Animasi untuk dropdown */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Dropdown options */
+.options-container {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    width: 100%;
+    max-height: 0;
+    overflow: hidden;
+    background-color: #fff;
+    border: 1px solid transparent;
+    border-top: none;
+    border-radius: 0 0 8px 8px;
+    z-index: 1000;
+    transition: max-height 0.3s ease, border-color 0.3s ease;
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+}
+
+.select-container.open .options-container {
+    max-height: 350px;
+    overflow-y: auto;
+    border-color: #4a6fdc;
+    animation: fadeIn 0.3s ease;
+}
+
+/* Styling untuk scrollbar di options container */
+.options-container::-webkit-scrollbar {
+    width: 6px;
+}
+
+.options-container::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 0 0 8px 0;
+}
+
+.options-container::-webkit-scrollbar-thumb {
+    background: #c1d1f7;
+    border-radius: 3px;
+}
+
+.options-container::-webkit-scrollbar-thumb:hover {
+    background: #8aa4e8;
+}
+
+/* Search input inside dropdown */
+.search-box {
+    padding: 12px;
+    border-bottom: 1px solid #eef2ff;
+    position: sticky;
+    top: 0;
+    background-color: #fff;
+    z-index: 1;
+}
+
+.search-box input {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1px solid #e0e7ff;
+    border-radius: 6px;
+    outline: none;
+    font-size: 14px;
+    background-color: #f8faff;
+    transition: all 0.2s ease;
+}
+
+.search-box input:focus {
+    border-color: #4a6fdc;
+    background-color: #fff;
+    box-shadow: 0 0 0 3px rgba(74, 111, 220, 0.1);
+}
+
+.search-box input::placeholder {
+    color: #a0aec0;
+}
+
+/* Custom options */
+.custom-option {
+    padding: 12px 16px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    border-left: 3px solid transparent;
+}
+
+.custom-option:hover {
+    background-color: #f0f5ff;
+    border-left-color: #4a6fdc;
+}
+
+.custom-option:active {
+    background-color: #e6eeff;
+}
+
+/* Opsi "Lainnya" selalu di bawah */
+.custom-option[data-value="other"] {
+    border-top: 1px dashed #e0e7ff;
+    font-style: italic;
+    color: #666;
+}
+
+.custom-option[data-value="other"]:hover {
+    color: #4a6fdc;
+}
+
+/* Highlighted text in search results */
+.highlight {
+    background-color: rgba(74, 111, 220, 0.15);
+    font-weight: 600;
+    border-radius: 2px;
+    padding: 0 2px;
+}
+
+/* No results message */
+.no-results {
+    padding: 16px;
+    color: #718096;
+    font-style: italic;
+    text-align: center;
+    background-color: #f8faff;
+}
+
+/* Sembunyikan select asli */
+#kampus-dropdown {
+    display: none;
+}
+
+/* Input manual untuk kampus */
+#asal-kampus-manual {
+    margin-top: 10px;
+    width: 100%;
+    padding: 12px 16px;
+    border: 1px solid #e0e7ff;
+    border-radius: 8px;
+    font-size: 14px;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+}
+
+#asal-kampus-manual:focus {
+    border-color: #4a6fdc;
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(74, 111, 220, 0.1);
+}
+
+/* Badge "Populer" untuk universitas terkenal */
+.popular-badge {
+    display: inline-block;
+    font-size: 10px;
+    background-color: #ebf4ff;
+    color: #3182ce;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-left: 8px;
+    font-weight: 600;
+    vertical-align: middle;
+}
+
+/* Counter untuk jumlah hasil pencarian */
+.search-count {
+    display: block;
+    padding: 6px 12px;
+    background-color: #f8faff;
+    color: #718096;
+    font-size: 12px;
+    text-align: right;
+    border-bottom: 1px solid #eef2ff;
+}
