@@ -10,6 +10,8 @@ class ListInternshipRequirements extends ListRecords
 {
     protected static string $resource = InternshipRequirementResource::class;
 
+    protected static ?string $title = 'Persyaratan Magang'; // Tambahkan ini
+
     protected function getHeaderActions(): array
     {
         return [

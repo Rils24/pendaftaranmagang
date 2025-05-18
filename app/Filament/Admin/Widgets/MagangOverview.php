@@ -339,16 +339,16 @@ class MagangOverview extends BaseWidget
                 ->icon('heroicon-o-chart-bar'),
             
             // Card Jurusan Terpopuler
-            Stat::make('Jurusan Terpopuler', new HtmlString($jurusanPopuler['title']))
-                ->description(new HtmlString($jurusanPopuler['description']))
-                ->descriptionIcon('heroicon-m-academic-cap')
-                ->chart($jurusanPopuler['chart'])
-                ->color('purple')
-                ->extraAttributes([
-                    'class' => 'bg-gradient-to-br from-white to-purple-50 dark:from-gray-800 dark:to-gray-900 rounded-2xl border border-purple-100 dark:border-purple-900 shadow-lg hover:shadow-purple-100/50 dark:hover:shadow-purple-900/50 transition-all duration-300',
-                    'style' => '--chart-color-1: ' . $this->chartColors['purple'][0] . '; --chart-color-2: ' . $this->chartColors['purple'][1] . ';',
-                ])
-                ->icon('heroicon-o-academic-cap'),
+            // Stat::make('Jurusan Terpopuler', new HtmlString($jurusanPopuler['title']))
+            //     ->description(new HtmlString($jurusanPopuler['description']))
+            //     ->descriptionIcon('heroicon-m-academic-cap')
+            //     ->chart($jurusanPopuler['chart'])
+            //     ->color('purple')
+            //     ->extraAttributes([
+            //         'class' => 'bg-gradient-to-br from-white to-purple-50 dark:from-gray-800 dark:to-gray-900 rounded-2xl border border-purple-100 dark:border-purple-900 shadow-lg hover:shadow-purple-100/50 dark:hover:shadow-purple-900/50 transition-all duration-300',
+            //         'style' => '--chart-color-1: ' . $this->chartColors['purple'][0] . '; --chart-color-2: ' . $this->chartColors['purple'][1] . ';',
+            //     ])
+            //     ->icon('heroicon-o-academic-cap'),
             
             // ROW 4 - INFORMASI SISTEM & STATISTIK TAMBAHAN
             // Card Pendaftar Hari Ini

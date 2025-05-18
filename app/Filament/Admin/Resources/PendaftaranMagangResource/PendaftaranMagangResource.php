@@ -6,6 +6,7 @@ use App\Filament\Admin\Resources\PendaftaranMagangResource\Pages;
 use App\Models\PendaftaranMagang;
 use App\Models\InternshipRequirement;
 use App\Models\Setting;
+use App\Models\User;
 use Filament\Forms;
 use Filament\Resources\Resource;
 use Filament\Tables;
@@ -32,8 +33,9 @@ use Filament\Forms\Components\Actions\Action as FormAction;
 use Filament\Tables\Filters\TrashedFilter;
 use Illuminate\Support\HtmlString;
 use Filament\Support\Enums\IconPosition;
-use App\Models\User;
 use Filament\Tables\Grouping\Group;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class PendaftaranMagangResource extends Resource
 {
@@ -78,356 +80,197 @@ class PendaftaranMagangResource extends Resource
                         Tabs\Tab::make('Informasi Dasar')
                             ->icon('heroicon-o-user')
                             ->schema([
-                                Forms\Components\Group::make()
+                                Forms\Components\Section::make('Informasi Pendaftar')
+                                    ->icon('heroicon-o-user')
+                                    ->description('Detail pendaftar magang')
+                                    ->collapsible()
                                     ->schema([
-                                        Forms\Components\Section::make('Informasi Pendaftar')
-                                            ->icon('heroicon-o-user')
-                                            ->description('Detail pendaftar magang')
-                                            ->collapsible()
-                                            ->schema([
-                                                Forms\Components\TextInput::make('user.name')
-                                                    ->label('Nama Pengguna')
-                                                    ->disabled()
-                                                    ->helperText('Nama pendaftar')
-                                                    ->suffixIcon('heroicon-m-user'),
-                                                
-                                                Forms\Components\TextInput::make('user.email')
-                                                    ->label('Email Pengguna')
-                                                    ->disabled()
+                                        // Select User untuk create mode atau display untuk edit mode
+                                        Forms\Components\Select::make('user_id')
+                                            ->label('Pengguna')
+                                            ->relationship(
+                                                'user',
+                                                'name',
+                                                fn (Builder $query) => $query->whereNotExists(
+                                                    fn ($query) => $query->select('id')
+                                                        ->from('pendaftaran_magangs')
+                                                        ->whereColumn('pendaftaran_magangs.user_id', 'users.id')
+                                                        ->where('status', '!=', 'ditolak')
+                                                )
+                                            )
+                                            ->preload()
+                                            ->searchable()
+                                            ->required()
+                                            ->createOptionForm([
+                                                Forms\Components\TextInput::make('name')
+                                                    ->label('Nama Lengkap')
+                                                    ->required()
+                                                    ->maxLength(255),
+                                                Forms\Components\TextInput::make('email')
+                                                    ->label('Email')
                                                     ->email()
-                                                    ->suffixIcon('heroicon-m-envelope'),
+                                                    ->required()
+                                                    ->unique('users', 'email')
+                                                    ->maxLength(255),
+                                                Forms\Components\TextInput::make('password')
+                                                    ->label('Password')
+                                                    ->password()
+                                                    ->required()
+                                                    ->minLength(8),
+                                            ])
+                                            ->createOptionUsing(function (array $data): int {
+                                                return User::create([
+                                                    'name' => $data['name'],
+                                                    'email' => $data['email'],
+                                                    'password' => bcrypt($data['password']),
+                                                    'email_verified_at' => now(),
+                                                ])->id;
+                                            })
+                                            ->hiddenOn('edit'),
+                                        
+                                        // Display user info on edit page
+                                        Forms\Components\Placeholder::make('user_info')
+                                            ->label('Informasi Pengguna')
+                                            ->content(function (PendaftaranMagang $record): string {
+                                                if (!$record->exists) {
+                                                    return '-';
+                                                }
+                                                return "{$record->user->name} ({$record->user->email})";
+                                            })
+                                            ->visibleOn('edit'),
+                                        
+                                        Forms\Components\Select::make('asal_kampus')
+                                            ->label('Asal Kampus')
+                                            ->options(function () {
+                                                // Ambil data dari tabel universitas
+                                                return DB::table('universitas')
+                                                    ->pluck('nama_universitas', 'nama_universitas')
+                                                    ->toArray();
+                                            })
+                                            ->searchable()
+                                            ->preload()
+                                            ->createOptionForm([
+                                                Forms\Components\TextInput::make('nama_universitas')
+                                                    ->label('Nama Universitas/Kampus')
+                                                    ->required()
+                                                    ->maxLength(255),
+                                            ])
+                                            ->createOptionUsing(function (array $data) {
+                                                // Simpan ke tabel universitas
+                                                DB::table('universitas')->insert([
+                                                    'nama_universitas' => $data['nama_universitas'],
+                                                    'created_at' => now(),
+                                                    'updated_at' => now(),
+                                                ]);
                                                 
-                                                Forms\Components\TextInput::make('asal_kampus')
-                                                    ->label('Asal Kampus')
-                                                    ->disabled()
-                                                    ->suffixIcon('heroicon-m-academic-cap'),
-                                                
-                                                Forms\Components\TextInput::make('jurusan')
-                                                    ->label('Jurusan')
-                                                    ->disabled()
-                                                    ->suffixIcon('heroicon-m-book-open'),
-                                                
-                                                Forms\Components\Grid::make()
-                                                    ->schema([
-                                                        Forms\Components\DatePicker::make('tanggal_mulai')
-                                                            ->label('Tanggal Mulai')
-                                                            ->disabled()
-                                                            ->displayFormat('d M Y')
-                                                            ->suffixIcon('heroicon-m-calendar-days'),
-                                                            
-                                                        Forms\Components\DatePicker::make('tanggal_selesai')
-                                                            ->label('Tanggal Selesai')
-                                                            ->disabled()
-                                                            ->displayFormat('d M Y')
-                                                            ->suffixIcon('heroicon-m-calendar-days'),
-                                                    ])
-                                                    ->columns(2),
-                                                    
-                                                Forms\Components\Placeholder::make('durasi_magang')
-                                                    ->label('Durasi Magang')
-                                                    ->content(function (PendaftaranMagang $record): string {
-                                                        if (!$record->tanggal_mulai || !$record->tanggal_selesai) {
-                                                            return '-';
+                                                // Return nama kampus untuk field asal_kampus
+                                                return $data['nama_universitas'];
+                                            })
+                                            ->required()
+                                            ->suffixIcon('heroicon-m-academic-cap'),
+                                            
+                                        // Hidden field untuk jurusan (default value)
+                                        Forms\Components\Hidden::make('jurusan')
+                                            ->default('Lihat di data anggota'),
+                                        
+                                        Forms\Components\Grid::make()
+                                            ->schema([
+                                                Forms\Components\DatePicker::make('tanggal_mulai')
+                                                    ->label('Tanggal Mulai')
+                                                    ->required()
+                                                    ->displayFormat('d M Y')
+                                                    ->suffixIcon('heroicon-m-calendar-days')
+                                                    ->reactive()
+                                                    ->afterStateUpdated(function ($state, callable $set) {
+                                                        if ($state) {
+                                                            $set('tanggal_selesai', Carbon::parse($state)->addMonths(1)->format('Y-m-d'));
                                                         }
-                                                        
-                                                        $start = Carbon::parse($record->tanggal_mulai);
-                                                        $end = Carbon::parse($record->tanggal_selesai);
-                                                        $diffInDays = $end->diffInDays($start) + 1;
-                                                        $diffInWeeks = ceil($diffInDays / 7);
-                                                        $diffInMonths = ceil($diffInDays / 30);
-                                                        
-                                                        $result = "<span class='text-primary-500 font-medium'>{$diffInDays} hari</span> ";
-                                                        $result .= "(<span class='text-primary-500 font-medium'>{$diffInWeeks} minggu</span>";
-                                                        
-                                                        if ($diffInMonths > 0) {
-                                                            $result .= " / <span class='text-primary-500 font-medium'>{$diffInMonths} bulan</span>";
-                                                        }
-                                                        
-                                                        $result .= ")";
-                                                        
-                                                        return new HtmlString($result);
-                                                    })
-                                                    ->hidden(function (PendaftaranMagang $record): bool {
-                                                        return !$record->exists || !$record->tanggal_mulai || !$record->tanggal_selesai;
                                                     }),
                                                     
-                                                Forms\Components\TextInput::make('created_at')
-                                                    ->label('Tanggal Pendaftaran')
-                                                    ->formatStateUsing(fn ($state) => $state ? Carbon::parse($state)->format('d M Y H:i') : '-')
-                                                    ->disabled()
-                                                    ->suffixIcon('heroicon-m-clock'),
+                                                Forms\Components\DatePicker::make('tanggal_selesai')
+                                                    ->label('Tanggal Selesai')
+                                                    ->required()
+                                                    ->displayFormat('d M Y')
+                                                    ->suffixIcon('heroicon-m-calendar-days')
+                                                    ->rules([
+                                                        fn (Forms\Get $get): \Closure => function (string $attribute, $value, \Closure $fail) use ($get) {
+                                                            if ($value && $get('tanggal_mulai') && $value <= $get('tanggal_mulai')) {
+                                                                $fail('Tanggal selesai harus setelah tanggal mulai');
+                                                            }
+                                                        },
+                                                    ]),
                                             ])
                                             ->columns(2),
-
-                                        Forms\Components\Section::make('Periode Magang')
-                                            ->icon('heroicon-o-calendar')
-                                            ->description('Informasi periode magang terkait')
-                                            ->collapsible()
-                                            ->schema([
-                                                Forms\Components\Select::make('periode_magang')
-                                                    ->label('Periode Magang')
-                                                    ->options(function () {
-                                                        return InternshipRequirement::orderBy('deadline', 'desc')
-                                                            ->get()
-                                                            ->mapWithKeys(function ($item) {
-                                                                $statusIcon = $item->isCurrentlyActive() ? '🟢 ' : '🔴 ';
-                                                                $kuotaInfo = "({$item->quota} kuota)";
-                                                                return [$item->id => $statusIcon . $item->period . ' ' . $kuotaInfo . ' - ' . $item->deadline->format('d M Y')];
-                                                            });
-                                                    })
-                                                    ->helperText('Periode magang yang terkait dengan pendaftaran ini')
-                                                    ->disabled()
-                                                    ->dehydrated(false)
-                                                    ->searchable(),
-                                                    
-                                                Forms\Components\Placeholder::make('info_periode')
-                                                    ->label('Keterangan Periode')
-                                                    ->content(function (PendaftaranMagang $record) {
-                                                        // Mencari periode yang sesuai berdasarkan tanggal pendaftaran
-                                                        $periode = InternshipRequirement::where('deadline', '>=', $record->created_at)
-                                                            ->where('created_at', '<=', $record->created_at)
-                                                            ->orderBy('deadline', 'asc')
-                                                            ->first();
-                                                            
-                                                        if (!$periode) {
-                                                            return new HtmlString('<span class="text-danger-500">Tidak dapat menentukan periode magang yang sesuai</span>');
-                                                        }
-                                                        
-                                                        $statusBadge = $periode->isCurrentlyActive() 
-                                                            ? '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-success-100 text-success-800">Aktif</span>' 
-                                                            : '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-danger-100 text-danger-800">Tidak Aktif</span>';
-                                                        
-                                                        $acceptedCount = PendaftaranMagang::where('status', 'diterima')
-                                                            ->where('created_at', '>=', $periode->created_at)
-                                                            ->where('created_at', '<=', $periode->deadline)
-                                                            ->count();
-                                                        
-                                                        $kuotaInfo = "<div class='mt-2'>Kuota: <strong>{$acceptedCount}/{$periode->quota}</strong></div>";
-                                                        
-                                                        if ($acceptedCount >= $periode->quota) {
-                                                            $kuotaInfo .= "<div class='text-danger-500 font-medium'>Kuota penuh!</div>";
-                                                        }
-                                                        
-                                                        return new HtmlString("Pendaftaran termasuk dalam periode: <strong>{$periode->period}</strong> {$statusBadge}{$kuotaInfo}");
-                                                    }),
-                                                    
-                                                Forms\Components\Placeholder::make('status_periode')
-                                                    ->label('Status Periode')
-                                                    ->content(function (PendaftaranMagang $record) {
-                                                        $periode = InternshipRequirement::where('deadline', '>=', $record->created_at)
-                                                            ->where('created_at', '<=', $record->created_at)
-                                                            ->orderBy('deadline', 'asc')
-                                                            ->first();
-                                                            
-                                                        if (!$periode) {
-                                                            return new HtmlString('<span class="text-danger-500">Tidak terkait dengan periode manapun</span>');
-                                                        }
-                                                        
-                                                        $daysLeft = now()->diffInDays($periode->deadline, false);
-                                                        
-                                                        if ($daysLeft < 0) {
-                                                            return new HtmlString('<span class="text-danger-500">Periode telah berakhir</span>');
-                                                        } else if ($daysLeft == 0) {
-                                                            return new HtmlString('<span class="text-warning-500 font-medium">Periode berakhir hari ini!</span>');
-                                                        } else if ($daysLeft <= 7) {
-                                                            return new HtmlString("<span class='text-warning-500 font-medium'>Periode berakhir dalam {$daysLeft} hari lagi</span>");
-                                                        } else {
-                                                            return new HtmlString("<span class='text-success-500'>Periode masih berlangsung ({$daysLeft} hari lagi)</span>");
-                                                        }
-                                                    }),
-                                            ]),
-                                    ])
-                                    ->columnSpan(['lg' => 2]),
-                                    
-                                Forms\Components\Group::make()
-                                    ->schema([
-                                        Forms\Components\Section::make('Status Pendaftaran')
-                                            ->icon('heroicon-o-check-circle')
-                                            ->description('Kelola status pendaftaran')
-                                            ->collapsible()
-                                            ->schema([
-                                                Forms\Components\Select::make('status')
-                                                    ->label('Status Pendaftaran')
-                                                    ->options([
-                                                        'pending' => 'Pending',
-                                                        'diterima' => 'Diterima',
-                                                        'ditolak' => 'Ditolak',
-                                                    ])
-                                                    ->default('pending')
-                                                    ->required()
-                                                    ->reactive()
-                                                    ->afterStateUpdated(function ($state, callable $set, $get) {
-                                                        if ($state === 'ditolak') {
-                                                            // Tidak mengubah alasan jika sudah ada
-                                                            if (!$get('alasan_penolakan')) {
-                                                                $set('alasan_penolakan', 'Mohon maaf, pendaftaran Anda tidak dapat diproses karena:');
-                                                            }
-                                                        } else {
-                                                            $set('alasan_penolakan', null);
-                                                        }
-                                                    })
-                                                    ->disabled(function ($record) {
-                                                        // Cek kuota penuh jika status akan diubah menjadi diterima
-                                                        if ($record && $record->status !== 'diterima') {
-                                                            $periode = InternshipRequirement::where('deadline', '>=', $record->created_at)
-                                                                ->where('created_at', '<=', $record->created_at)
-                                                                ->orderBy('deadline', 'asc')
-                                                                ->first();
-                                                                
-                                                            if ($periode) {
-                                                                $acceptedCount = PendaftaranMagang::where('status', 'diterima')
-                                                                    ->where('created_at', '>=', $periode->created_at)
-                                                                    ->where('created_at', '<=', $periode->deadline)
-                                                                    ->count();
-                                                                
-                                                                // Jika kuota sudah penuh, tidak bisa menerima pendaftar baru
-                                                                if ($acceptedCount >= $periode->quota) {
-                                                                    return true;
-                                                                }
-                                                            }
-                                                        }
-                                                        return false;
-                                                    })
-                                                    ->helperText(function ($record) {
-                                                        if ($record) {
-                                                            $periode = InternshipRequirement::where('deadline', '>=', $record->created_at)
-                                                                ->where('created_at', '<=', $record->created_at)
-                                                                ->orderBy('deadline', 'asc')
-                                                                ->first();
-                                                                
-                                                            if ($periode) {
-                                                                $acceptedCount = PendaftaranMagang::where('status', 'diterima')
-                                                                    ->where('created_at', '>=', $periode->created_at)
-                                                                    ->where('created_at', '<=', $periode->deadline)
-                                                                    ->count();
-                                                                 
-                                                                $persentase = $periode->quota > 0 ? round(($acceptedCount / $periode->quota) * 100) : 0;
-                                                                return "Kuota: $acceptedCount/$periode->quota ($persentase%)";
-                                                            }
-                                                        }
-                                                        return 'Kuota tidak tersedia';
-                                                    })
-                                                    ->suffixAction(function ($record, $state) {
-                                                        if ($record && $state === 'pending') {
-                                                            return FormAction::make('forceApprove')
-                                                                ->label('Force Approve')
-                                                                ->icon('heroicon-m-check-circle')
-                                                                ->color('success')
-                                                                ->action(function ($record, $livewire) {
-                                                                    // Force approval meskipun kuota penuh
-                                                                    $record->update(['status' => 'diterima']);
-                                                                    
-                                                                    if ($livewire->data['kirim_notifikasi'] ?? true) {
-                                                                        Mail::to($record->user->email)->send(new PendaftaranMagangMail('diterima'));
-                                                                    }
-                                                                    
-                                                                    Notification::make()
-                                                                        ->title('Pendaftaran berhasil disetujui secara paksa')
-                                                                        ->success()
-                                                                        ->send();
-                                                                    
-                                                                    return redirect()->back();
-                                                                })
-                                                                ->requiresConfirmation();
-                                                        }
-                                                        
-                                                        return null;
-                                                    }),
-
-                                                Forms\Components\Textarea::make('alasan_penolakan')
-                                                    ->label('Alasan Penolakan')
-                                                    ->visible(fn ($get) => $get('status') === 'ditolak')
-                                                    ->required(fn ($get) => $get('status') === 'ditolak')
-                                                    ->rows(4)
-                                                    ->columnSpanFull()
-                                                    ->helperText('Alasan ini akan ditampilkan pada pendaftar'),
-                                                    
-                                                Forms\Components\Placeholder::make('status_info')
-                                                    ->label('Informasi Status')
-                                                    ->content(function (PendaftaranMagang $record): string {
-                                                        if (!$record->exists) {
-                                                            return '-';
-                                                        }
-                                                        
-                                                        $statusTime = Carbon::parse($record->updated_at)->format('d M Y H:i');
-                                                        
-                                                        switch ($record->status) {
-                                                            case 'pending':
-                                                                $waitTime = now()->diffForHumans($record->created_at, true);
-                                                                return "Menunggu verifikasi admin (sudah menunggu selama {$waitTime}).";
-                                                            case 'diterima':
-                                                                return "Pendaftaran telah disetujui pada {$statusTime}";
-                                                            case 'ditolak':
-                                                                return "Pendaftaran ditolak pada {$statusTime}";
-                                                            default:
-                                                                return '-';
-                                                        }
-                                                    }),
-                                            ]),
                                             
-                                        Forms\Components\Section::make('Notifikasi')
-                                            ->icon('heroicon-o-bell')
-                                            ->description('Pengaturan notifikasi email')
-                                            ->collapsible()
-                                            ->schema([
-                                                Forms\Components\Placeholder::make('notifikasi_info')
-                                                    ->label('Notifikasi Email')
-                                                    ->content('Email notifikasi akan dikirim kepada pendaftar saat status diubah.')
-                                                    ->helperText('Email akan dikirim ke alamat pendaftar'),
-                                                    
-                                                Forms\Components\Checkbox::make('kirim_notifikasi')
-                                                    ->label('Kirim Notifikasi')
-                                                    ->helperText('Centang untuk mengirim notifikasi email ke pendaftar')
-                                                    ->default(true),
-                                                    
-                                                Forms\Components\Checkbox::make('notifikasi_admin')
-                                                    ->label('Notifikasi Admin')
-                                                    ->helperText('Centang untuk mengirim salinan notifikasi ke admin')
-                                                    ->default(function () {
-                                                        $setting = Setting::first();
-                                                        return $setting ? $setting->send_admin_notifications : false;
-                                                    })
-                                                    ->dehydrated(false),
-                                            ]),
-                                            
-                                        Forms\Components\Section::make('Catatan Admin')
-                                            ->icon('heroicon-o-clipboard-document')
-                                            ->description('Catatan internal untuk admin')
-                                            ->collapsible()
-                                            ->collapsed()
-                                            ->schema([
-                                                Forms\Components\Textarea::make('admin_notes')
-                                                    ->label('Catatan Internal')
-                                                    ->placeholder('Tambahkan catatan internal di sini...')
-                                                    ->helperText('Catatan ini hanya terlihat oleh admin')
-                                                    ->rows(4)
-                                                    ->columnSpanFull()
-                                                    ->dehydrated(false),
-                                            ]),
-                                    ])
-                                    ->columnSpan(['lg' => 1]),
-                            ]),
-                            
-                        Tabs\Tab::make('Dokumen')
-                            ->icon('heroicon-o-document')
-                            ->schema([
-                                Forms\Components\Section::make('Dokumen Pendaftaran')
-                                    ->icon('heroicon-o-document')
-                                    ->description('Dokumen yang diunggah oleh pendaftar')
-                                    ->schema([
                                         Forms\Components\FileUpload::make('surat_pengantar')
                                             ->label('Surat Pengantar')
-                                            ->downloadable()
-                                            ->openable()
-                                            ->columnSpanFull()
+                                            ->required()
                                             ->directory('surat-pengantar')
-                                            ->visibility('private')
-                                            ->imagePreviewHeight('400')
-                                            ->loadingIndicatorPosition('left')
-                                            ->panelAspectRatio('2:1')
-                                            ->panelLayout('integrated')
+                                            ->visibility('public')
                                             ->acceptedFileTypes(['application/pdf'])
-                                            ->helperText('File PDF surat pengantar dari universitas/institusi'),
+                                            ->maxSize(5120) // 5MB
+                                            ->helperText('Upload file PDF surat pengantar dari universitas/institusi (Maksimal 5MB)')
+                                            ->disk('public')
+                                            ->preserveFilenames()
+                                            ->openable()
+                                            ->downloadable()
+                                            ->maxWidth('full'),
+                                            
+                                        Forms\Components\Placeholder::make('durasi_magang')
+                                            ->label('Durasi Magang')
+                                            ->content(function (Forms\Get $get): string {
+                                                if (!$get('tanggal_mulai') || !$get('tanggal_selesai')) {
+                                                    return '-';
+                                                }
+                                                
+                                                $start = Carbon::parse($get('tanggal_mulai'));
+                                                $end = Carbon::parse($get('tanggal_selesai'));
+                                                $diffInDays = $end->diffInDays($start) + 1;
+                                                
+                                                return "{$diffInDays} hari";
+                                            })
+                                            ->reactive(),
+                                    ])
+                                    ->columns(2),
+                                    
+                                Forms\Components\Section::make('Status Pendaftaran')
+                                    ->icon('heroicon-o-check-circle')
+                                    ->description('Kelola status pendaftaran')
+                                    ->collapsible()
+                                    ->schema([
+                                        Forms\Components\Select::make('status')
+                                            ->label('Status Pendaftaran')
+                                            ->options([
+                                                'pending' => 'Pending',
+                                                'diterima' => 'Diterima',
+                                                'ditolak' => 'Ditolak',
+                                            ])
+                                            ->default('pending')
+                                            ->required()
+                                            ->reactive()
+                                            ->afterStateUpdated(function ($state, callable $set, $get) {
+                                                if ($state === 'ditolak') {
+                                                    if (!$get('alasan_penolakan')) {
+                                                        $set('alasan_penolakan', 'Mohon maaf, pendaftaran Anda tidak dapat diproses karena:');
+                                                    }
+                                                } else {
+                                                    $set('alasan_penolakan', null);
+                                                }
+                                            }),
+
+                                        Forms\Components\Textarea::make('alasan_penolakan')
+                                            ->label('Alasan Penolakan')
+                                            ->visible(fn ($get) => $get('status') === 'ditolak')
+                                            ->required(fn ($get) => $get('status') === 'ditolak')
+                                            ->rows(4)
+                                            ->columnSpanFull()
+                                            ->helperText('Alasan ini akan ditampilkan pada pendaftar'),
+                                            
+                                        Forms\Components\Checkbox::make('kirim_notifikasi')
+                                            ->label('Kirim Notifikasi Email')
+                                            ->helperText('Centang untuk mengirim notifikasi email ke pendaftar')
+                                            ->default(true)
+                                            ->dehydrated(false),
                                     ]),
                             ]),
                             
@@ -436,7 +279,7 @@ class PendaftaranMagangResource extends Resource
                             ->schema([
                                 Forms\Components\Section::make('Anggota Tim Magang')
                                     ->icon('heroicon-o-users')
-                                    ->description('Daftar anggota tim magang')
+                                    ->description('Daftar anggota tim magang (maksimal 6 anggota)')
                                     ->schema([
                                         Forms\Components\Repeater::make('anggota')
                                             ->relationship('anggota')
@@ -450,89 +293,39 @@ class PendaftaranMagangResource extends Resource
                                                 Forms\Components\TextInput::make('nim_anggota')
                                                     ->label('NIM Anggota')
                                                     ->required()
-                                                    ->maxLength(50),
+                                                    ->maxLength(50)
+                                                    ->unique('anggota_pendaftaran', 'nim_anggota', ignoreRecord: true),
                                                     
                                                 Forms\Components\TextInput::make('no_hp_anggota')
                                                     ->label('No HP Anggota')
                                                     ->required()
                                                     ->tel()
-                                                    ->maxLength(15),
+                                                    ->maxLength(15)
+                                                    ->rules(['regex:/^(\+62|62|0)([0-9]){9,}$/']),
                                                     
                                                 Forms\Components\TextInput::make('email_anggota')
                                                     ->label('Email Anggota')
                                                     ->required()
                                                     ->email()
-                                                    ->maxLength(255),
+                                                    ->maxLength(255)
+                                                    ->unique('anggota_pendaftaran', 'email_anggota', ignoreRecord: true),
                                                     
                                                 Forms\Components\TextInput::make('jurusan')
                                                     ->label('Jurusan Anggota')
-                                                    ->maxLength(255),
+                                                    ->required()
+                                                    ->maxLength(255)
+                                                    ->hint('Masukkan jurusan/program studi anggota'),
                                             ])
                                             ->columns(2)
                                             ->maxItems(6)
+                                            ->minItems(0)
                                             ->collapsible()
-                                            ->collapsed()
                                             ->itemLabel(fn (array $state): ?string => $state['nama_anggota'] ?? null)
-                                            ->collapsible()
+                                            ->deleteAction(
+                                                fn (Forms\Components\Actions\Action $action) => $action->requiresConfirmation()
+                                            )
                                             ->reorderable()
-                                            ->orderColumn('urutan'),
-                                    ]),
-                            ]),
-                            
-                        Tabs\Tab::make('Riwayat & Log')
-                            ->icon('heroicon-o-clock')
-                            ->schema([
-                                Forms\Components\Section::make('Riwayat Pendaftaran')
-                                    ->icon('heroicon-o-clock')
-                                    ->description('Riwayat perubahan status pendaftaran')
-                                    ->schema([
-                                        Forms\Components\Placeholder::make('created_log')
-                                            ->label('Pendaftaran Dibuat')
-                                            ->content(function (PendaftaranMagang $record): string {
-                                                return $record->created_at ? $record->created_at->format('d M Y H:i:s') : '-';
-                                            }),
-                                            
-                                        Forms\Components\Placeholder::make('updated_log')
-                                            ->label('Terakhir Diperbarui')
-                                            ->content(function (PendaftaranMagang $record): string {
-                                                return $record->updated_at ? $record->updated_at->format('d M Y H:i:s') : '-';
-                                            }),
-                                            
-                                        Forms\Components\Placeholder::make('status_logs')
-                                            ->label('Log Perubahan Status')
-                                            ->content(function (PendaftaranMagang $record): string {
-                                                if (!$record->exists) {
-                                                    return '-';
-                                                }
-                                                
-                                                // Placeholder content for status logs
-                                                // In a real implementation, you would query a status_logs table
-                                                $html = "<div class='space-y-2'>";
-                                                $html .= "<div class='flex items-center gap-2 text-sm text-gray-600'>";
-                                                $html .= "<span class='w-24'>" . $record->created_at->format('d M Y H:i') . "</span>";
-                                                $html .= "<span class='inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800'>Dibuat</span>";
-                                                $html .= "<span>Pendaftaran dibuat dengan status Pending</span>";
-                                                $html .= "</div>";
-                                                
-                                                if ($record->status !== 'pending') {
-                                                    $html .= "<div class='flex items-center gap-2 text-sm text-gray-600'>";
-                                                    $html .= "<span class='w-24'>" . $record->updated_at->format('d M Y H:i') . "</span>";
-                                                    
-                                                    if ($record->status === 'diterima') {
-                                                        $html .= "<span class='inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-success-100 text-success-800'>Diterima</span>";
-                                                        $html .= "<span>Pendaftaran disetujui</span>";
-                                                    } else {
-                                                        $html .= "<span class='inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-danger-100 text-danger-800'>Ditolak</span>";
-                                                        $html .= "<span>Pendaftaran ditolak dengan alasan: " . $record->alasan_penolakan . "</span>";
-                                                    }
-                                                    
-                                                    $html .= "</div>";
-                                                }
-                                                
-                                                $html .= "</div>";
-                                                
-                                                return new HtmlString($html);
-                                            }),
+                                            ->defaultItems(0),
                                     ]),
                             ]),
                     ])
@@ -600,49 +393,10 @@ class PendaftaranMagangResource extends Resource
                         $start = Carbon::parse($record->tanggal_mulai);
                         $end = Carbon::parse($record->tanggal_selesai);
                         $diffInDays = $end->diffInDays($start) + 1;
-                        $diffInWeeks = ceil($diffInDays / 7);
                         
-                        return "{$diffInWeeks} minggu";
+                        return "{$diffInDays} hari";
                     })
                     ->toggleable(),
-                    
-                Tables\Columns\TextColumn::make('periode_magang')
-                    ->label('Periode')
-                    ->getStateUsing(function (PendaftaranMagang $record) {
-                        // Mencari periode yang sesuai berdasarkan tanggal pendaftaran
-                        $periode = InternshipRequirement::where('deadline', '>=', $record->created_at)
-                            ->where('created_at', '<=', $record->created_at)
-                            ->orderBy('deadline', 'asc')
-                            ->first();
-                            
-                        if (!$periode) {
-                            return '-';
-                        }
-                        
-                        $isActive = $periode->isCurrentlyActive();
-                        $indicator = $isActive ? '🟢' : '🔴';
-                        
-                        return "{$indicator} {$periode->period}";
-                    })
-                    ->tooltip(function ($record) {
-                        $periode = InternshipRequirement::where('deadline', '>=', $record->created_at)
-                            ->where('created_at', '<=', $record->created_at)
-                            ->orderBy('deadline', 'asc')
-                            ->first();
-                            
-                        if (!$periode) {
-                            return 'Tidak ada periode terkait';
-                        }
-                        
-                        $acceptedCount = PendaftaranMagang::where('status', 'diterima')
-                            ->where('created_at', '>=', $periode->created_at)
-                            ->where('created_at', '<=', $periode->deadline)
-                            ->count();
-                            
-                        return "Kuota: {$acceptedCount}/{$periode->quota}";
-                    })
-                    ->searchable(false)
-                    ->sortable(false),
                     
                 Tables\Columns\TextColumn::make('status')
                     ->label('Status')
@@ -682,6 +436,7 @@ class PendaftaranMagangResource extends Resource
             ])
             ->defaultSort('created_at', 'desc')
             ->filters([
+                // Hanya filter yang penting
                 SelectFilter::make('status')
                     ->multiple()
                     ->options([
@@ -691,32 +446,6 @@ class PendaftaranMagangResource extends Resource
                     ])
                     ->indicator('Status'),
                     
-                SelectFilter::make('periode_magang')
-                    ->label('Periode Magang')
-                    ->options(function () {
-                        return InternshipRequirement::orderBy('deadline', 'desc')
-                            ->get()
-                            ->mapWithKeys(function ($item) {
-                                $isActive = $item->isCurrentlyActive() ? '🟢 ' : '🔴 ';
-                                return [$item->id => $isActive . $item->period . ' (' . $item->deadline->format('d M Y') . ')'];
-                            });
-                    })
-                    ->query(function (Builder $query, array $data): Builder {
-                        if (empty($data['value'])) {
-                            return $query;
-                        }
-                        
-                        $periode = InternshipRequirement::find($data['value']);
-                        if (!$periode) {
-                            return $query;
-                        }
-                        
-                        return $query
-                            ->where('created_at', '>=', $periode->created_at)
-                            ->where('created_at', '<=', $periode->deadline);
-                    })
-                    ->indicator('Periode'),
-                    
                 SelectFilter::make('asal_kampus')
                     ->options(function () {
                         return PendaftaranMagang::distinct('asal_kampus')
@@ -725,59 +454,14 @@ class PendaftaranMagangResource extends Resource
                     })
                     ->searchable()
                     ->indicator('Kampus'),
-                    
-                Filter::make('durasi')
-                    ->form([
-                        Forms\Components\Grid::make()
-                            ->schema([
-                                Forms\Components\TextInput::make('min_durasi')
-                                    ->label('Durasi Minimal (hari)')
-                                    ->numeric()
-                                    ->minValue(1),
-                                Forms\Components\TextInput::make('max_durasi')
-                                    ->label('Durasi Maksimal (hari)')
-                                    ->numeric()
-                                    ->minValue(1),
-                            ])
-                            ->columns(2),
-                    ])
-                    ->query(function (Builder $query, array $data): Builder {
-                        return $query
-                            ->when(
-                                $data['min_durasi'],
-                                function (Builder $query, $min): Builder {
-                                    return $query->whereRaw('DATEDIFF(tanggal_selesai, tanggal_mulai) + 1 >= ?', [$min]);
-                                },
-                            )
-                            ->when(
-                                $data['max_durasi'],
-                                function (Builder $query, $max): Builder {
-                                    return $query->whereRaw('DATEDIFF(tanggal_selesai, tanggal_mulai) + 1 <= ?', [$max]);
-                                },
-                            );
-                    })
-                    ->indicateUsing(function (array $data): array {
-                        $indicators = [];
-                        
-                        if ($data['min_durasi'] ?? null) {
-                            $indicators[] = "Durasi min: {$data['min_durasi']} hari";
-                        }
-                        
-                        if ($data['max_durasi'] ?? null) {
-                            $indicators[] = "Durasi max: {$data['max_durasi']} hari";
-                        }
-                        
-                        return $indicators;
-                    }),
-                    
+
                 Filter::make('created_at')
+                    ->label('Tanggal Pendaftaran')
                     ->form([
                         Forms\Components\DatePicker::make('dari_tanggal')
-                            ->label('Dari Tanggal')
-                            ->displayFormat('d M Y'),
+                            ->label('Dari Tanggal'),
                         Forms\Components\DatePicker::make('sampai_tanggal')
-                            ->label('Sampai Tanggal')
-                            ->displayFormat('d M Y'),
+                            ->label('Sampai Tanggal'),
                     ])
                     ->query(function (Builder $query, array $data): Builder {
                         return $query
@@ -789,87 +473,6 @@ class PendaftaranMagangResource extends Resource
                                 $data['sampai_tanggal'],
                                 fn (Builder $query, $date): Builder => $query->whereDate('created_at', '<=', $date),
                             );
-                    })
-                    ->indicateUsing(function (array $data): array {
-                        $indicators = [];
-                        
-                        if ($data['dari_tanggal'] ?? null) {
-                            $indicators[] = 'Daftar dari ' . Carbon::parse($data['dari_tanggal'])->format('d M Y');
-                        }
-                        
-                        if ($data['sampai_tanggal'] ?? null) {
-                            $indicators[] = 'Daftar sampai ' . Carbon::parse($data['sampai_tanggal'])->format('d M Y');
-                        }
-                        
-                        return $indicators;
-                    }),
-                    
-                Filter::make('tanggal_magang')
-                    ->form([
-                        Forms\Components\DatePicker::make('mulai_magang')
-                            ->label('Mulai Magang')
-                            ->displayFormat('d M Y'),
-                        Forms\Components\DatePicker::make('selesai_magang')
-                            ->label('Selesai Magang')
-                            ->displayFormat('d M Y'),
-                    ])
-                    ->query(function (Builder $query, array $data): Builder {
-                        return $query
-                            ->when(
-                                $data['mulai_magang'],
-                                fn (Builder $query, $date): Builder => $query->whereDate('tanggal_mulai', '>=', $date),
-                            )
-                            ->when(
-                                $data['selesai_magang'],
-                                fn (Builder $query, $date): Builder => $query->whereDate('tanggal_selesai', '<=', $date),
-                            );
-                    })
-                    ->indicateUsing(function (array $data): array {
-                        $indicators = [];
-                        
-                        if ($data['mulai_magang'] ?? null) {
-                            $indicators[] = 'Mulai dari ' . Carbon::parse($data['mulai_magang'])->format('d M Y');
-                        }
-                        
-                        if ($data['selesai_magang'] ?? null) {
-                            $indicators[] = 'Selesai sebelum ' . Carbon::parse($data['selesai_magang'])->format('d M Y');
-                        }
-                        
-                        return $indicators;
-                    }),
-                    
-                Filter::make('anggota_count')
-                    ->label('Jumlah Anggota')
-                    ->form([
-                        Forms\Components\Select::make('anggota_count')
-                            ->label('Jumlah Anggota')
-                            ->options([
-                                '0' => 'Tidak ada anggota',
-                                '1' => '1 anggota',
-                                '2' => '2 anggota',
-                                '3' => '3 anggota',
-                                '4' => '4 anggota',
-                                '5' => '5 anggota',
-                                '6' => '6 anggota',
-                                'more_than_0' => 'Memiliki anggota',
-                            ]),
-                    ])
-                    ->query(function (Builder $query, array $data): Builder {
-                        return $query
-                            ->when($data['anggota_count'] === '0', fn ($query) => $query->has('anggota', 0))
-                            ->when($data['anggota_count'] === 'more_than_0', fn ($query) => $query->has('anggota', '>', 0))
-                            ->when(is_numeric($data['anggota_count']), fn ($query) => $query->has('anggota', $data['anggota_count']));
-                    })
-                    ->indicateUsing(function (array $data): ?string {
-                        if (!isset($data['anggota_count']) || $data['anggota_count'] === '') {
-                            return null;
-                        }
-                        
-                        return match($data['anggota_count']) {
-                            '0' => 'Tidak ada anggota',
-                            'more_than_0' => 'Memiliki anggota',
-                            default => "{$data['anggota_count']} anggota",
-                        };
                     }),
             ])
             ->actions([
@@ -886,7 +489,6 @@ class PendaftaranMagangResource extends Resource
                     ->icon('heroicon-o-trash')
                     ->tooltip('Hapus pendaftaran'),
 
-                // Tombol Terima
                 Action::make('terima')
                     ->label('Terima')
                     ->icon('heroicon-o-check')
@@ -898,62 +500,20 @@ class PendaftaranMagangResource extends Resource
                         return "Apakah Anda yakin ingin menerima pendaftaran ini dengan total {$totalPeople} orang (1 pendaftar + {$record->anggota()->count()} anggota)?";
                     })
                     ->modalSubmitActionLabel('Ya, Terima Pendaftaran')
-                    ->visible(function ($record) {
-                        if ($record->status === 'diterima') {
-                            return false;
-                        }
-                        
-                        // Cek kuota periode terkait
-                        $periode = InternshipRequirement::where('deadline', '>=', $record->created_at)
-                            ->where('created_at', '<=', $record->created_at)
-                            ->orderBy('deadline', 'asc')
-                            ->first();
-                            
-                        if ($periode) {
-                            // Hitung pendaftar yang diterima (termasuk anggota timnya)
-                            $pendaftaranDiterima = PendaftaranMagang::where('status', 'diterima')
-                                ->where('created_at', '>=', $periode->created_at)
-                                ->where('created_at', '<=', $periode->deadline)
-                                ->get();
-                            
-                            // Hitung jumlah total orang (pendaftar utama + anggota tim)
-                            $totalPeople = 0;
-                            
-                            foreach ($pendaftaranDiterima as $pendaftaran) {
-                                // Tambahkan 1 untuk pendaftar utama
-                                $totalPeople++;
-                                
-                                // Tambahkan jumlah anggota tim
-                                $totalPeople += $pendaftaran->anggota()->count();
-                            }
-                            
-                            // Hitung berapa banyak orang yang akan ditambahkan (pendaftar + anggota)
-                            $additionalPeople = 1 + $record->anggota()->count();
-                            
-                            // Jika kuota sudah penuh, tidak bisa menerima pendaftar baru
-                            if ($totalPeople + $additionalPeople > $periode->quota) {
-                                return false;
-                            }
-                        }
-                        
-                        return true;
-                    })
+                    ->visible(fn ($record) => $record->status !== 'diterima')
                     ->action(function ($record) {
                         $record->update(['status' => 'diterima']);
-
-                        // Kirim email ke user
                         Mail::to($record->user->email)->send(new PendaftaranMagangMail('diterima'));
                         
                         $totalPeople = 1 + $record->anggota()->count();
                         
                         Notification::make()
                             ->title('Pendaftaran berhasil disetujui')
-                            ->body("Total {$totalPeople} orang (1 pendaftar + {$record->anggota()->count()} anggota) telah ditambahkan ke kuota.")
+                            ->body("Total {$totalPeople} orang telah diterima.")
                             ->success()
                             ->send();
                     }),
 
-                // Tombol Tolak
                 Action::make('tolak')
                     ->label('Tolak')
                     ->icon('heroicon-o-x-mark')
@@ -977,7 +537,6 @@ class PendaftaranMagangResource extends Resource
                             'alasan_penolakan' => $data['alasan_penolakan'],
                         ]);
 
-                        // Kirim email ke user
                         Mail::to($record->user->email)->send(new PendaftaranMagangMail('ditolak', $data['alasan_penolakan']));
                         
                         Notification::make()
@@ -986,7 +545,6 @@ class PendaftaranMagangResource extends Resource
                             ->send();
                     }),
                     
-                // Tombol lihat dokumen dengan modal popup
                 Action::make('view_document')
                     ->label('Dokumen')
                     ->icon('heroicon-o-document-text')
@@ -998,7 +556,6 @@ class PendaftaranMagangResource extends Resource
                         
                         $url = asset('storage/' . $record->surat_pengantar);
                         
-                        // Buat iframe untuk menampilkan PDF
                         return new HtmlString('
                             <div class="flex flex-col space-y-4">
                                 <div class="bg-gray-100 p-2 rounded">
@@ -1023,137 +580,6 @@ class PendaftaranMagangResource extends Resource
                     ->modalCancelActionLabel('Tutup')
                     ->visible(fn ($record) => $record->surat_pengantar)
                     ->tooltip('Lihat dokumen surat pengantar'),
-                    
-                // Tombol Force Accept
-                Action::make('force_accept')
-                    ->label('Force Accept')
-                    ->icon('heroicon-o-shield-check')
-                    ->color('success')
-                    ->outlined()
-                    ->tooltip(function ($record) {
-                        $totalPeople = 1 + $record->anggota()->count();
-                        return "Terima paksa (bypass kuota) - {$totalPeople} orang";
-                    })
-                    ->requiresConfirmation()
-                    ->modalHeading('Force Accept Pendaftaran')
-                    ->modalDescription(function ($record) {
-                        $totalPeople = 1 + $record->anggota()->count();
-                        
-                        // Ambil info kuota yang tersisa
-                        $periode = InternshipRequirement::where('deadline', '>=', $record->created_at)
-                            ->where('created_at', '<=', $record->created_at)
-                            ->orderBy('deadline', 'asc')
-                            ->first();
-                            
-                        if (!$periode) {
-                            return "Tindakan ini akan menerima pendaftaran dengan total {$totalPeople} orang meskipun kuota penuh! Lanjutkan?";
-                        }
-                        
-                        // Hitung pendaftar yang diterima (termasuk anggota timnya)
-                        $pendaftaranDiterima = PendaftaranMagang::where('status', 'diterima')
-                            ->where('created_at', '>=', $periode->created_at)
-                            ->where('created_at', '<=', $periode->deadline)
-                            ->get();
-                        
-                        // Hitung jumlah total orang (pendaftar utama + anggota tim)
-                        $totalAccepted = 0;
-                        
-                        foreach ($pendaftaranDiterima as $pendaftaran) {
-                            // Tambahkan 1 untuk pendaftar utama
-                            $totalAccepted++;
-                            
-                            // Tambahkan jumlah anggota tim
-                            $totalAccepted += $pendaftaran->anggota()->count();
-                        }
-                        
-                        $newTotal = $totalAccepted + $totalPeople;
-                        $overQuota = $newTotal - $periode->quota;
-                        
-                        return "Tindakan ini akan menerima pendaftaran dengan total {$totalPeople} orang meskipun kuota sudah penuh! Kuota saat ini: {$totalAccepted}/{$periode->quota} orang. Setelah diterima akan menjadi: {$newTotal}/{$periode->quota} orang (kelebihan {$overQuota} orang). Lanjutkan?";
-                    })
-                    ->modalSubmitActionLabel('Ya, Terima Paksa')
-                    ->visible(function ($record) {
-                        if ($record->status === 'diterima') {
-                            return false;
-                        }
-                        
-                        // Hanya tampilkan untuk pendaftaran yang tidak bisa diterima karena kuota
-                        $periode = InternshipRequirement::where('deadline', '>=', $record->created_at)
-                            ->where('created_at', '<=', $record->created_at)
-                            ->orderBy('deadline', 'asc')
-                            ->first();
-                            
-                        if ($periode) {
-                            // Hitung pendaftar yang diterima (termasuk anggota timnya)
-                            $pendaftaranDiterima = PendaftaranMagang::where('status', 'diterima')
-                                ->where('created_at', '>=', $periode->created_at)
-                                ->where('created_at', '<=', $periode->deadline)
-                                ->get();
-                            
-                            // Hitung jumlah total orang (pendaftar utama + anggota tim)
-                            $totalPeople = 0;
-                            
-                            foreach ($pendaftaranDiterima as $pendaftaran) {
-                                // Tambahkan 1 untuk pendaftar utama
-                                $totalPeople++;
-                                
-                                // Tambahkan jumlah anggota tim
-                                $totalPeople += $pendaftaran->anggota()->count();
-                            }
-                            
-                            // Hitung berapa banyak orang yang akan ditambahkan (pendaftar + anggota)
-                            $additionalPeople = 1 + $record->anggota()->count();
-                            
-                            // Jika kuota sudah penuh, tampilkan tombol force accept
-                            if ($totalPeople + $additionalPeople > $periode->quota) {
-                                return true;
-                            }
-                        }
-                        
-                        return false;
-                    })
-                    ->action(function ($record) {
-                        $record->update(['status' => 'diterima']);
-
-                        // Kirim email ke user
-                        Mail::to($record->user->email)->send(new PendaftaranMagangMail('diterima'));
-                        
-                        $totalPeople = 1 + $record->anggota()->count();
-                        
-                        // Ambil info kuota yang tersisa
-                        $periode = InternshipRequirement::where('deadline', '>=', $record->created_at)
-                            ->where('created_at', '<=', $record->created_at)
-                            ->orderBy('deadline', 'asc')
-                            ->first();
-                            
-                        $kuotaInfo = "";
-                        if ($periode) {
-                            // Hitung pendaftar yang diterima (termasuk anggota timnya)
-                            $pendaftaranDiterima = PendaftaranMagang::where('status', 'diterima')
-                                ->where('created_at', '>=', $periode->created_at)
-                                ->where('created_at', '<=', $periode->deadline)
-                                ->get();
-                            
-                            // Hitung jumlah total orang (pendaftar utama + anggota tim)
-                            $totalAccepted = 0;
-                            
-                            foreach ($pendaftaranDiterima as $pendaftaran) {
-                                // Tambahkan 1 untuk pendaftar utama
-                                $totalAccepted++;
-                                
-                                // Tambahkan jumlah anggota tim
-                                $totalAccepted += $pendaftaran->anggota()->count();
-                            }
-                            
-                            $kuotaInfo = " Kuota saat ini: {$totalAccepted}/{$periode->quota}.";
-                        }
-                        
-                        Notification::make()
-                            ->title('Pendaftaran berhasil disetujui secara paksa')
-                            ->warning()
-                            ->body("Total {$totalPeople} orang (1 pendaftar + {$record->anggota()->count()} anggota) telah ditambahkan meskipun kuota sudah penuh.{$kuotaInfo}")
-                            ->send();
-                    }),
             ])
             ->bulkActions([
                 BulkActionGroup::make([
@@ -1175,131 +601,23 @@ class PendaftaranMagangResource extends Resource
                         ->requiresConfirmation()
                         ->deselectRecordsAfterCompletion()
                         ->modalHeading('Terima Pendaftaran Batch')
-                        ->modalDescription('Sistem akan menerima pendaftaran sesuai kuota yang tersedia.')
+                        ->modalDescription('Apakah Anda yakin ingin menerima semua pendaftaran yang dipilih?')
                         ->modalSubmitActionLabel('Ya, Terima Pendaftaran')
                         ->action(function (Collection $records) {
-                            // Kelompokkan records berdasarkan periode
-                            $recordsByPeriode = [];
-                            foreach ($records as $record) {
-                                if ($record->status === 'diterima') {
-                                    continue;
-                                }
-                                
-                                // Cari periode terkait
-                                $periode = InternshipRequirement::where('deadline', '>=', $record->created_at)
-                                    ->where('created_at', '<=', $record->created_at)
-                                    ->orderBy('deadline', 'asc')
-                                    ->first();
-                                    
-                                if (!$periode) {
-                                    continue;
-                                }
-                                
-                                if (!isset($recordsByPeriode[$periode->id])) {
-                                    $recordsByPeriode[$periode->id] = [
-                                        'periode' => $periode,
-                                        'records' => [],
-                                    ];
-                                }
-                                
-                                $recordsByPeriode[$periode->id]['records'][] = $record;
-                            }
-                            
                             $totalDiterima = 0;
-                            $totalKurangKuota = 0;
-                            
-                            // Proses berdasarkan periode
-                            foreach ($recordsByPeriode as $periodeId => $data) {
-                                $periode = $data['periode'];
-                                $periodeRecords = $data['records'];
-                                
-                                // Hitung kuota tersisa
-                                $acceptedCount = PendaftaranMagang::where('status', 'diterima')
-                                    ->where('created_at', '>=', $periode->created_at)
-                                    ->where('created_at', '<=', $periode->deadline)
-                                    ->count();
-                                    
-                                $sisaKuota = $periode->quota - $acceptedCount;
-                                
-                                // Jika kuota masih tersedia
-                                if ($sisaKuota > 0) {
-                                    // Tentukan berapa banyak yang bisa diterima
-                                    $jumlahDiterima = min(count($periodeRecords), $sisaKuota);
-                                    
-                                    // Ambil records yang akan diterima
-                                    $recordsDiterima = array_slice($periodeRecords, 0, $jumlahDiterima);
-                                    
-                                    // Update status dan kirim email
-                                    foreach ($recordsDiterima as $record) {
-                                        $record->update(['status' => 'diterima']);
-                                        Mail::to($record->user->email)->send(new PendaftaranMagangMail('diterima'));
-                                        $totalDiterima++;
-                                    }
-                                    
-                                    // Jika ada yang tidak bisa diterima karena kuota
-                                    if (count($periodeRecords) > $sisaKuota) {
-                                        $totalKurangKuota += (count($periodeRecords) - $sisaKuota);
-                                    }
-                                } else {
-                                    $totalKurangKuota += count($periodeRecords);
-                                }
-                            }
-                            
-                            // Tampilkan notifikasi hasil
-                            if ($totalDiterima > 0) {
-                                $message = "{$totalDiterima} pendaftaran berhasil diterima.";
-                                
-                                if ($totalKurangKuota > 0) {
-                                    $message .= " {$totalKurangKuota} pendaftaran tidak dapat diterima karena kuota penuh.";
-                                    
-                                    Notification::make()
-                                        ->title('Pendaftaran Batch Diproses')
-                                        ->warning()
-                                        ->body($message)
-                                        ->persistent()
-                                        ->send();
-                                } else {
-                                    Notification::make()
-                                        ->title('Pendaftaran Batch Diterima')
-                                        ->success()
-                                        ->body($message)
-                                        ->send();
-                                }
-                            } else if ($totalKurangKuota > 0) {
-                                Notification::make()
-                                    ->title('Tidak Ada Pendaftaran yang Diterima')
-                                    ->danger()
-                                    ->body("Semua pendaftaran ({$totalKurangKuota}) tidak dapat diterima karena kuota penuh.")
-                                    ->persistent()
-                                    ->send();
-                            }
-                        }),
-                        
-                    Tables\Actions\BulkAction::make('force_approve_batch')
-                        ->label('Force Approve')
-                        ->icon('heroicon-o-shield-check')
-                        ->color('danger')
-                        ->requiresConfirmation()
-                        ->deselectRecordsAfterCompletion()
-                        ->modalHeading('Force Approve Pendaftaran')
-                        ->modalDescription('Tindakan ini akan menerima semua pendaftaran yang dipilih meskipun kuota penuh! Lanjutkan?')
-                        ->modalSubmitActionLabel('Ya, Approve Paksa')
-                        ->action(function (Collection $records) {
-                            $approved = 0;
                             
                             foreach ($records as $record) {
                                 if ($record->status !== 'diterima') {
                                     $record->update(['status' => 'diterima']);
                                     Mail::to($record->user->email)->send(new PendaftaranMagangMail('diterima'));
-                                    $approved++;
+                                    $totalDiterima++;
                                 }
                             }
                             
                             Notification::make()
-                                ->title("{$approved} Pendaftaran Disetujui Secara Paksa")
-                                ->warning()
-                                ->body('Pendaftaran telah disetujui meskipun mungkin melebihi kuota.')
-                                ->persistent()
+                                ->title("{$totalDiterima} Pendaftaran Diterima")
+                                ->success()
+                                ->body('Email notifikasi telah dikirim ke semua pendaftar.')
                                 ->send();
                         }),
                         
@@ -1343,7 +661,6 @@ class PendaftaranMagangResource extends Resource
                 ]),
             ])
             ->headerActions([
-                // Tombol Toggle Pendaftaran
                 Action::make('toggle_pendaftaran')
                     ->label(fn () => Setting::first()?->status_pendaftaran ? 'Tutup Pendaftaran' : 'Buka Pendaftaran')
                     ->icon(fn () => Setting::first()?->status_pendaftaran ? 'heroicon-o-lock-closed' : 'heroicon-o-lock-open')
@@ -1370,9 +687,8 @@ class PendaftaranMagangResource extends Resource
                             ->send();
                     }),
                     
-                // Dashboard Mini Stats
                 Action::make('dashboard_stats')
-                    ->label('Statistik Pendaftaran')
+                    ->label('Statistik')
                     ->icon('heroicon-o-chart-bar')
                     ->color('gray')
                     ->action(function () {
@@ -1383,41 +699,12 @@ class PendaftaranMagangResource extends Resource
                         
                         $acceptRate = $totalCount > 0 ? round(($acceptedCount / $totalCount) * 100) : 0;
                         
-                        $periode = InternshipRequirement::where('is_active', true)->first();
-                        
-                        $currentPeriodCount = 0;
-                        $currentPeriodAccepted = 0;
-                        $kuotaRemainingText = 'Tidak ada periode aktif';
-                        
-                        if ($periode) {
-                            $currentPeriodCount = PendaftaranMagang::where('created_at', '>=', $periode->created_at)
-                                ->where('created_at', '<=', $periode->deadline)
-                                ->count();
-                                
-                            $currentPeriodAccepted = PendaftaranMagang::where('status', 'diterima')
-                                ->where('created_at', '>=', $periode->created_at)
-                                ->where('created_at', '<=', $periode->deadline)
-                                ->count();
-                                
-                            $remaining = $periode->quota - $currentPeriodAccepted;
-                            $kuotaRemainingText = "Kuota tersisa: {$remaining} dari {$periode->quota}";
-                        }
-                        
                         $message = "<div class='space-y-3'>";
                         $message .= "<div><span class='font-medium'>Total Pendaftaran:</span> {$totalCount}</div>";
                         $message .= "<div><span class='font-medium'>Pending:</span> {$pendingCount}</div>";
                         $message .= "<div><span class='font-medium'>Diterima:</span> {$acceptedCount}</div>";
                         $message .= "<div><span class='font-medium'>Ditolak:</span> {$rejectedCount}</div>";
                         $message .= "<div><span class='font-medium'>Tingkat Penerimaan:</span> {$acceptRate}%</div>";
-                        
-                        if ($periode) {
-                            $message .= "<hr class='my-2'>";
-                            $message .= "<div><span class='font-medium'>Periode Saat Ini:</span> {$periode->period}</div>";
-                            $message .= "<div><span class='font-medium'>Pendaftar Periode Ini:</span> {$currentPeriodCount}</div>";
-                            $message .= "<div><span class='font-medium'>Diterima Periode Ini:</span> {$currentPeriodAccepted}</div>";
-                            $message .= "<div><span class='font-medium'>{$kuotaRemainingText}</span></div>";
-                        }
-                        
                         $message .= "</div>";
                         
                         Notification::make()
@@ -1488,28 +775,20 @@ class PendaftaranMagangResource extends Resource
                     ->schema([
                         Infolists\Components\Section::make('Informasi Pendaftar')
                             ->icon('heroicon-o-user')
-                            ->collapsible()
-                            ->description('Detail mahasiswa yang mendaftar magang')
                             ->schema([
                                 Infolists\Components\TextEntry::make('user.name')
                                     ->label('Nama Lengkap')
                                     ->icon('heroicon-m-user')
-                                    ->weight('bold')
-                                    ->size(Infolists\Components\TextEntry\TextEntrySize::Large),
+                                    ->weight('bold'),
                                     
                                 Infolists\Components\TextEntry::make('user.email')
                                     ->label('Email')
                                     ->icon('heroicon-m-envelope')
-                                    ->copyable()
-                                    ->url(fn ($record) => "mailto:{$record->user->email}"),
+                                    ->copyable(),
                                     
                                 Infolists\Components\TextEntry::make('asal_kampus')
                                     ->label('Asal Kampus')
                                     ->icon('heroicon-m-academic-cap'),
-                                    
-                                // Infolists\Components\TextEntry::make('jurusan')
-                                //     ->label('Jurusan')
-                                //     ->icon('heroicon-m-book-open'),
                                     
                                 Infolists\Components\Grid::make(2)
                                     ->schema([
@@ -1535,19 +814,14 @@ class PendaftaranMagangResource extends Resource
                                         $start = Carbon::parse($record->tanggal_mulai);
                                         $end = Carbon::parse($record->tanggal_selesai);
                                         $diffInDays = $end->diffInDays($start) + 1;
-                                        $diffInWeeks = ceil($diffInDays / 7);
-                                        $diffInMonths = ceil($diffInDays / 30);
                                         
-                                        $result = "{$diffInDays} hari ";
-                                
-                                        return new HtmlString($result);
+                                        return "{$diffInDays} hari";
                                     }),
                             ])
                             ->columnSpan(2),
                             
-                        Infolists\Components\Section::make('Status Pendaftaran')
+                        Infolists\Components\Section::make('Status')
                             ->icon('heroicon-o-check-circle')
-                            ->collapsible()
                             ->schema([
                                 Infolists\Components\TextEntry::make('status')
                                     ->label('Status')
@@ -1556,241 +830,68 @@ class PendaftaranMagangResource extends Resource
                                         'diterima' => 'success',
                                         'ditolak' => 'danger',
                                         default => 'warning',
-                                    })
-                                    ->icon(fn (string $state): string => match ($state) {
-                                        'diterima' => 'heroicon-m-check-circle',
-                                        'ditolak' => 'heroicon-m-x-circle',
-                                        default => 'heroicon-m-clock',
-                                    })
-                                    ->size(Infolists\Components\TextEntry\TextEntrySize::Large),
+                                    }),
                                     
                                 Infolists\Components\TextEntry::make('created_at')
                                     ->label('Tanggal Pendaftaran')
-                                    ->icon('heroicon-m-calendar')
-                                    ->dateTime('d M Y H:i'),
-                                    
-                                Infolists\Components\TextEntry::make('updated_at')
-                                    ->label('Terakhir Diperbarui')
-                                    ->icon('heroicon-m-arrow-path')
-                                    ->dateTime('d M Y H:i'),
+                                    ->dateTime(),
                                     
                                 Infolists\Components\TextEntry::make('alasan_penolakan')
                                     ->label('Alasan Penolakan')
-                                    ->icon('heroicon-m-exclamation-circle')
                                     ->visible(fn ($record) => $record->status === 'ditolak')
-                                    ->color('danger')
-                                    ->markdown()
-                                    ->columnSpanFull(),
+                                    ->color('danger'),
                             ])
                             ->columnSpan(1),
                     ]),
                     
-                Infolists\Components\Grid::make(2)
+                Infolists\Components\Section::make('Dokumen')
+                    ->icon('heroicon-o-document')
                     ->schema([
-                        Infolists\Components\Section::make('Periode Magang')
-                            ->icon('heroicon-o-calendar')
-                            ->collapsible()
-                            ->collapsed(false)
-                            ->schema([
-                                Infolists\Components\TextEntry::make('periode_magang')
-                                    ->label('Terdaftar Pada Periode')
-                                    ->icon('heroicon-m-calendar-days')
-                                    ->getStateUsing(function (PendaftaranMagang $record) {
-                                        // Mencari periode yang sesuai berdasarkan tanggal pendaftaran
-                                        $periode = InternshipRequirement::where('deadline', '>=', $record->created_at)
-                                            ->where('created_at', '<=', $record->created_at)
-                                            ->orderBy('deadline', 'asc')
-                                            ->first();
-                                            
-                                        if (!$periode) {
-                                            return new HtmlString('<span class="text-danger-500">Tidak terkait dengan periode manapun</span>');
-                                        }
-                                        
-                                        $statusIcon = $periode->isCurrentlyActive() ? '🟢' : '🔴';
-                                        $statusText = $periode->isCurrentlyActive() 
-                                            ? '<span class="text-success-500 font-medium">Aktif</span>' 
-                                            : '<span class="text-danger-500">Tidak Aktif</span>';
-                                            
-                                        return new HtmlString("{$statusIcon} {$periode->period} ({$statusText}) <br>Deadline: {$periode->deadline->format('d M Y')}");
-                                    }),
-                                    
-                                Infolists\Components\TextEntry::make('kuota_periode')
-                                    ->label('Kuota Periode')
-                                    ->icon('heroicon-m-users')
-                                    ->getStateUsing(function (PendaftaranMagang $record) {
-                                        // Mencari periode yang sesuai
-                                        $periode = InternshipRequirement::where('deadline', '>=', $record->created_at)
-                                            ->where('created_at', '<=', $record->created_at)
-                                            ->orderBy('deadline', 'asc')
-                                            ->first();
-                                            
-                                        if (!$periode) {
-                                            return new HtmlString('<span class="text-danger-500">Tidak terkait dengan periode manapun</span>');
-                                        }
-                                        
-                                        // Hitung pendaftar yang diterima
-                                        $acceptedCount = PendaftaranMagang::where('status', 'diterima')
-                                            ->where('created_at', '>=', $periode->created_at)
-                                            ->where('created_at', '<=', $periode->deadline)
-                                            ->count();
-                                            
-                                        $persentase = $periode->quota > 0 ? round(($acceptedCount / $periode->quota) * 100) : 0;
-                                        
-                                        $colorClass = 'text-primary-500';
-                                        if ($acceptedCount >= $periode->quota) {
-                                            $colorClass = 'text-danger-500';
-                                        } elseif ($acceptedCount >= $periode->quota * 0.8) {
-                                            $colorClass = 'text-warning-500';
-                                        }
-                                        
-                                        return new HtmlString("<span class='{$colorClass} font-medium'>{$acceptedCount}/{$periode->quota}</span> ({$persentase}%)");
-                                    }),
-                                    
-                                Infolists\Components\TextEntry::make('status_periode')
-                                    ->label('Status Periode')
-                                    ->icon('heroicon-m-information-circle')
-                                    ->getStateUsing(function (PendaftaranMagang $record) {
-                                        $periode = InternshipRequirement::where('deadline', '>=', $record->created_at)
-                                            ->where('created_at', '<=', $record->created_at)
-                                            ->orderBy('deadline', 'asc')
-                                            ->first();
-                                            
-                                        if (!$periode) {
-                                            return new HtmlString('<span class="text-danger-500">Tidak terkait dengan periode manapun</span>');
-                                        }
-                                        
-                                        $daysLeft = now()->diffInDays($periode->deadline, false);
-                                        
-                                        if ($daysLeft < 0) {
-                                            return new HtmlString('<span class="text-danger-500">Periode telah berakhir</span>');
-                                        } else if ($daysLeft == 0) {
-                                            return new HtmlString('<span class="text-warning-500 font-medium">Periode berakhir hari ini!</span>');
-                                        } else if ($daysLeft <= 7) {
-                                            return new HtmlString("<span class='text-warning-500 font-medium'>Periode berakhir dalam {$daysLeft} hari lagi</span>");
-                                        } else {
-                                            return new HtmlString("<span class='text-success-500'>Periode masih berlangsung ({$daysLeft} hari lagi)</span>");
-                                        }
-                                    }),
-                            ]),
-                            
-                        Infolists\Components\Section::make('Dokumen')
-                            ->icon('heroicon-o-document')
-                            ->collapsible()
-                            ->collapsed(false)
-                            ->schema([
-                                Infolists\Components\TextEntry::make('surat_pengantar_info')
-                                    ->label('Surat Pengantar')
-                                    ->getStateUsing(function (PendaftaranMagang $record) {
-                                        if (!$record->surat_pengantar) {
-                                            return new HtmlString('<span class="text-danger-500">Tidak ada file surat pengantar</span>');
-                                        }
-                                        
-                                        $url = asset('storage/' . $record->surat_pengantar);
-                                        
-                                        $html = "<div class='space-y-2'>";
-                                        $html .= "<div class='flex items-center gap-3'>";
-                                        $html .= "<span class='inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-primary-100 text-primary-800'>PDF</span>";
-                                        $html .= "<span>Surat Pengantar Magang</span>";
-                                        $html .= "</div>";
-                                        
-                                        $html .= "<div class='flex gap-2 mt-2'>";
-                                        $html .= "<a href='{$url}' target='_blank' class='inline-flex items-center justify-center gap-1 px-4 py-2 bg-primary-500 text-white rounded-md text-xs hover:bg-primary-600 transition-colors'>";
-                                        $html .= "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='currentColor' class='w-4 h-4'><path d='M10 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z' /><path fill-rule='evenodd' d='M.664 10.59a1.651 1.651 0 0 1 0-1.186A10.004 10.004 0 0 1 10 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10.004 10.004 0 0 1 10 17c-4.257 0-7.893-2.66-9.336-6.41ZM14 10a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z' clip-rule='evenodd' /></svg>";
-                                        $html .= "Lihat Dokumen";
-                                        $html .= "</a>";
-                                        
-                                        $html .= "<a href='{$url}' download class='inline-flex items-center justify-center gap-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-md text-xs hover:bg-gray-200 transition-colors'>";
-                                        $html .= "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='currentColor' class='w-4 h-4'><path d='M10.75 2.75a.75.75 0 0 0-1.5 0v8.614L6.295 8.235a.75.75 0 1 0-1.09 1.03l4.25 4.5a.75.75 0 0 0 1.09 0l4.25-4.5a.75.75 0 0 0-1.09-1.03l-2.955 3.129V2.75Z' /><path d='M3.5 12.75a.75.75 0 0 0-1.5 0v2.5A2.75 2.75 0 0 0 4.75 18h10.5A2.75 2.75 0 0 0 18 15.25v-2.5a.75.75 0 0 0-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5Z' /></svg>";
-                                        $html .= "Unduh Dokumen";
-                                        $html .= "</a>";
-                                        $html .= "</div>";
-                                        
-                                        $html .= "</div>";
-                                        
-                                        return new HtmlString($html);
-                                    }),
-                            ]),
+                        Infolists\Components\TextEntry::make('surat_pengantar')
+                            ->label('Surat Pengantar')
+                            ->getStateUsing(function (PendaftaranMagang $record) {
+                                if (!$record->surat_pengantar) {
+                                    return new HtmlString('<span class="text-danger-500">Tidak ada file surat pengantar</span>');
+                                }
+                                
+                                $url = asset('storage/' . $record->surat_pengantar);
+                                
+                                return new HtmlString("
+                                    <div class='flex gap-2'>
+                                        <a href='{$url}' target='_blank' class='inline-flex items-center gap-1 px-3 py-1 bg-primary-500 text-white rounded-md text-xs hover:bg-primary-600'>
+                                            <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='currentColor' class='w-4 h-4'><path d='M10 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z' /><path fill-rule='evenodd' d='M.664 10.59a1.651 1.651 0 0 1 0-1.186A10.004 10.004 0 0 1 10 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10.004 10.004 0 0 1 10 17c-4.257 0-7.893-2.66-9.336-6.41ZM14 10a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z' clip-rule='evenodd' /></svg>
+                                            Lihat
+                                        </a>
+                                        <a href='{$url}' download class='inline-flex items-center gap-1 px-3 py-1 bg-gray-500 text-white rounded-md text-xs hover:bg-gray-600'>
+                                            <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='currentColor' class='w-4 h-4'><path d='M10.75 2.75a.75.75 0 0 0-1.5 0v8.614L6.295 8.235a.75.75 0 1 0-1.09 1.03l4.25 4.5a.75.75 0 0 0 1.09 0l4.25-4.5a.75.75 0 0 0-1.09-1.03l-2.955 3.129V2.75Z' /><path d='M3.5 12.75a.75.75 0 0 0-1.5 0v2.5A2.75 2.75 0 0 0 4.75 18h10.5A2.75 2.75 0 0 0 18 15.25v-2.5a.75.75 0 0 0-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5Z' /></svg>
+                                            Unduh
+                                        </a>
+                                    </div>
+                                ");
+                            }),
                     ]),
                     
                 Infolists\Components\Section::make('Anggota Tim')
                     ->icon('heroicon-o-users')
                     ->visible(fn ($record) => $record->anggota && $record->anggota->count() > 0)
-                    ->collapsible()
-                    ->collapsed(false)
                     ->schema([
                         Infolists\Components\RepeatableEntry::make('anggota')
                             ->schema([
                                 Infolists\Components\TextEntry::make('nama_anggota')
-                                    ->label('Nama')
-                                    ->icon('heroicon-m-user')
-                                    ->weight('medium'),
-                                    
+                                    ->label('Nama'),
                                 Infolists\Components\TextEntry::make('nim_anggota')
-                                    ->label('NIM')
-                                    ->icon('heroicon-m-identification'),
-                                    
-                                Infolists\Components\TextEntry::make('no_hp_anggota')
-                                    ->label('No. HP')
-                                    ->icon('heroicon-m-phone')
-                                    ->url(fn ($record) => "tel:{$record->no_hp_anggota}")
-                                    ->copyable(),
-                                    
+                                    ->label('NIM'),
                                 Infolists\Components\TextEntry::make('email_anggota')
-                                    ->label('Email')
-                                    ->icon('heroicon-m-envelope')
-                                    ->url(fn ($record) => "mailto:{$record->email_anggota}")
-                                    ->copyable(),
-                                    
+                                    ->label('Email'),
                                 Infolists\Components\TextEntry::make('jurusan')
-                                    ->label('Jurusan')
-                                    ->icon('heroicon-m-academic-cap'),
+                                    ->label('Jurusan'),
                             ])
-                            ->columns(3),
+                            ->columns(4),
                     ]),
                     
-                Infolists\Components\Section::make('Tombol Aksi')
-                    ->collapsible(false)
+                Infolists\Components\Section::make('Aksi')
                     ->schema([
                         Infolists\Components\Actions::make([
-                            Infolists\Components\Actions\Action::make('tolak')
-                                ->label('Tolak Pendaftaran')
-                                ->icon('heroicon-m-x-circle')
-                                ->color('danger')
-                                ->button()
-                                ->requiresConfirmation()
-                                ->modalHeading('Tolak Pendaftaran')
-                                ->modalDescription('Apakah Anda yakin ingin menolak pendaftaran ini?')
-                                ->modalSubmitActionLabel('Ya, Tolak Pendaftaran')
-                                ->visible(fn ($record) => $record->status !== 'ditolak')
-                                ->form([
-                                    Forms\Components\Textarea::make('alasan_penolakan')
-                                        ->label('Alasan Penolakan')
-                                        ->required()
-                                        ->rows(3)
-                                        ->placeholder('Masukkan alasan penolakan...')
-                                        ->helperText('Alasan ini akan ditampilkan kepada pendaftar.')
-                                        ->default('Mohon maaf, pendaftaran Anda tidak dapat diproses karena:'),
-                                        
-                                    Forms\Components\Checkbox::make('kirim_email')
-                                        ->label('Kirim email notifikasi')
-                                        ->default(true),
-                                ])
-                                ->action(function (PendaftaranMagang $record, array $data) {
-                                    $record->update([
-                                        'status' => 'ditolak',
-                                        'alasan_penolakan' => $data['alasan_penolakan'],
-                                    ]);
-                                    
-                                    if ($data['kirim_email']) {
-                                        Mail::to($record->user->email)->send(new PendaftaranMagangMail('ditolak', $data['alasan_penolakan']));
-                                    }
-                                    
-                                    Notification::make()
-                                        ->title('Pendaftaran telah ditolak')
-                                        ->warning()
-                                        ->send();
-                                }),
-                                
                             Infolists\Components\Actions\Action::make('terima')
                                 ->label('Terima Pendaftaran')
                                 ->icon('heroicon-m-check-circle')
@@ -1799,43 +900,11 @@ class PendaftaranMagangResource extends Resource
                                 ->requiresConfirmation()
                                 ->modalHeading('Terima Pendaftaran')
                                 ->modalDescription('Apakah Anda yakin ingin menerima pendaftaran ini?')
-                                ->modalSubmitActionLabel('Ya, Terima Pendaftaran')
-                                ->visible(function ($record) {
-                                    if ($record->status === 'diterima') {
-                                        return false;
-                                    }
-                                    
-                                    // Cek kuota periode terkait
-                                    $periode = InternshipRequirement::where('deadline', '>=', $record->created_at)
-                                        ->where('created_at', '<=', $record->created_at)
-                                        ->orderBy('deadline', 'asc')
-                                        ->first();
-                                        
-                                    if ($periode) {
-                                        $acceptedCount = PendaftaranMagang::where('status', 'diterima')
-                                            ->where('created_at', '>=', $periode->created_at)
-                                            ->where('created_at', '<=', $periode->deadline)
-                                            ->count();
-                                            
-                                        // Jika kuota sudah penuh, tidak bisa menerima pendaftar baru
-                                        if ($acceptedCount >= $periode->quota) {
-                                            return false;
-                                        }
-                                    }
-                                    
-                                    return true;
-                                })
-                                ->form([
-                                    Forms\Components\Checkbox::make('kirim_email')
-                                        ->label('Kirim email notifikasi')
-                                        ->default(true),
-                                ])
-                                ->action(function (PendaftaranMagang $record, array $data) {
+                                ->modalSubmitActionLabel('Ya, Terima')
+                                ->visible(fn ($record) => $record->status !== 'diterima')
+                                ->action(function (PendaftaranMagang $record) {
                                     $record->update(['status' => 'diterima']);
-                                    
-                                    if ($data['kirim_email']) {
-                                        Mail::to($record->user->email)->send(new PendaftaranMagangMail('diterima'));
-                                    }
+                                    Mail::to($record->user->email)->send(new PendaftaranMagangMail('diterima'));
                                     
                                     Notification::make()
                                         ->title('Pendaftaran berhasil disetujui')
@@ -1843,67 +912,36 @@ class PendaftaranMagangResource extends Resource
                                         ->send();
                                 }),
                                 
-                            Infolists\Components\Actions\Action::make('force_accept')
-                                ->label('Force Accept')
-                                ->icon('heroicon-m-shield-check')
-                                ->color('warning')
+                            Infolists\Components\Actions\Action::make('tolak')
+                                ->label('Tolak Pendaftaran')
+                                ->icon('heroicon-m-x-circle')
+                                ->color('danger')
                                 ->button()
                                 ->requiresConfirmation()
-                                ->modalHeading('Force Accept Pendaftaran')
-                                ->modalDescription('Tindakan ini akan menerima pendaftaran meskipun kuota penuh! Lanjutkan?')
-                                ->modalSubmitActionLabel('Ya, Terima Paksa')
-                                ->visible(function ($record) {
-                                    if ($record->status === 'diterima') {
-                                        return false;
-                                    }
-                                    
-                                    // Hanya tampilkan untuk pendaftaran yang tidak bisa diterima karena kuota
-                                    $periode = InternshipRequirement::where('deadline', '>=', $record->created_at)
-                                        ->where('created_at', '<=', $record->created_at)
-                                        ->orderBy('deadline', 'asc')
-                                        ->first();
-                                        
-                                    if ($periode) {
-                                        $acceptedCount = PendaftaranMagang::where('status', 'diterima')
-                                            ->where('created_at', '>=', $periode->created_at)
-                                            ->where('created_at', '<=', $periode->deadline)
-                                            ->count();
-                                            
-                                        // Jika kuota sudah penuh, tampilkan tombol force accept
-                                        if ($acceptedCount >= $periode->quota) {
-                                            return true;
-                                        }
-                                    }
-                                    
-                                    return false;
-                                })
+                                ->modalHeading('Tolak Pendaftaran')
+                                ->modalDescription('Apakah Anda yakin ingin menolak pendaftaran ini?')
+                                ->modalSubmitActionLabel('Ya, Tolak')
+                                ->visible(fn ($record) => $record->status !== 'ditolak')
                                 ->form([
-                                    Forms\Components\Checkbox::make('kirim_email')
-                                        ->label('Kirim email notifikasi')
-                                        ->default(true),
+                                    Forms\Components\Textarea::make('alasan_penolakan')
+                                        ->label('Alasan Penolakan')
+                                        ->required()
+                                        ->rows(3)
+                                        ->default('Mohon maaf, pendaftaran Anda tidak dapat diproses karena:'),
                                 ])
                                 ->action(function (PendaftaranMagang $record, array $data) {
-                                    $record->update(['status' => 'diterima']);
+                                    $record->update([
+                                        'status' => 'ditolak',
+                                        'alasan_penolakan' => $data['alasan_penolakan'],
+                                    ]);
                                     
-                                    if ($data['kirim_email']) {
-                                        Mail::to($record->user->email)->send(new PendaftaranMagangMail('diterima'));
-                                    }
+                                    Mail::to($record->user->email)->send(new PendaftaranMagangMail('ditolak', $data['alasan_penolakan']));
                                     
                                     Notification::make()
-                                        ->title('Pendaftaran berhasil disetujui secara paksa')
+                                        ->title('Pendaftaran telah ditolak')
                                         ->warning()
-                                        ->body('Pendaftaran ini disetujui meskipun kuota sudah penuh.')
                                         ->send();
                                 }),
-                                
-                            Infolists\Components\Actions\Action::make('view_document')
-                                ->label('Lihat Dokumen')
-                                ->icon('heroicon-m-document-text')
-                                ->color('gray')
-                                ->button()
-                                ->url(fn ($record) => $record->surat_pengantar ? asset('storage/' . $record->surat_pengantar) : '#')
-                                ->openUrlInNewTab()
-                                ->visible(fn ($record) => $record->surat_pengantar),
                         ]),
                     ]),
             ]);
@@ -1923,7 +961,7 @@ class PendaftaranMagangResource extends Resource
     {
         return [
             'index' => Pages\ListPendaftaranMagangs::route('/'),
-            'create' => Pages\CreatePendaftaranMagang::route('/create'),
+            // 'create' => Pages\CreatePendaftaranMagang::route('/create'),
             'edit' => Pages\EditPendaftaranMagang::route('/{record}/edit'),
             'view' => Pages\ViewPendaftaranMagang::route('/{record}'),
         ];

@@ -7,13 +7,9 @@
     <link href="{{ asset('bootslander/assets/img/Logo.png') }}" rel="icon">
     <style>
         :root {
-            /* 
-            Customize these colors to match your logo 
-            You can use a color picker tool to extract exact colors
-            */
-            --primary-color: #005A8D;       /* Main brand color */
-            --secondary-color: #00304E;     /* Darker shade for depth */
-            --accent-color: #6BA5C1;        /* Lighter complementary color */
+            --primary-color: #005A8D;
+            --secondary-color: #00304E;
+            --accent-color: #6BA5C1;
             --text-primary: #2c3333;
             --text-secondary: #495057;
             --background-light: #f8f9fa;
@@ -153,32 +149,48 @@
             color: white;
         }
 
+        /* Tabel anggota style */
+        .anggota-section {
+            margin-top: 20px;
+        }
+        
+        .anggota-title {
+            color: var(--primary-color);
+            border-bottom: 2px solid var(--primary-color);
+            padding-bottom: 5px;
+            margin-bottom: 15px;
+            font-size: 18px;
+            font-weight: 600;
+        }
+        
         .anggota-table {
             width: 100%;
-            border-collapse: separate;
-            border-spacing: 0;
-            margin-top: 15px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            border-collapse: collapse;
+            font-size: 14px;
         }
-
+        
         .anggota-table th {
             background-color: var(--primary-color);
             color: white;
-            padding: 12px;
-            text-align: left;
             font-weight: 600;
-            text-transform: uppercase;
-            font-size: 14px;
+            padding: 8px;
+            text-align: center;
+            border: 1px solid #ccc;
         }
-
+        
         .anggota-table td {
-            padding: 12px;
-            border-bottom: 1px solid var(--border-color);
-            font-size: 15px;
+            padding: 8px;
+            border: 1px solid #ccc;
+            max-width: 150px;
+            word-wrap: break-word;
         }
-
-        .anggota-table tr:last-child td {
-            border-bottom: none;
+        
+        .anggota-table tr:nth-child(even) {
+            background-color: #f2f2f2;
+        }
+        
+        .anggota-table tr:hover {
+            background-color: #e9e9e9;
         }
 
         .footer {
@@ -308,16 +320,18 @@
             <table class="anggota-table">
                 <thead>
                     <tr>
-                        <th>Nama</th>
-                        <th>NIM</th>
-                        <th>Jurusan</th>
-                        <th>Email</th>
-                        <th>No. Telepon</th>
+                        <th style="width: 5%;">NO</th>
+                        <th style="width: 25%;">NAMA</th>
+                        <th style="width: 15%;">NIM</th>
+                        <th style="width: 20%;">JURUSAN</th>
+                        <th style="width: 20%;">EMAIL</th>
+                        <th style="width: 15%;">NO HP</th>
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach($pendaftaran->anggota as $anggota)
+                    @foreach($pendaftaran->anggota as $key => $anggota)
                     <tr>
+                        <td style="text-align: center;">{{ $key + 1 }}</td>
                         <td>{{ $anggota->nama_anggota }}</td>
                         <td>{{ $anggota->nim_anggota ?? '-' }}</td>
                         <td>{{ $anggota->jurusan }}</td>
@@ -331,13 +345,15 @@
         @endif
 
         <div class="footer">
-            Dokumen ini dicetak pada {{ now()->format('d F Y H:i:s') }} | Sistem Informasi Manajemen Magang
+            Dokumen ini dicetak pada {{ \Carbon\Carbon::now()->format('d F Y H:i:s') }} | Sistem Informasi Manajemen Magang
         </div>
     </div>
 
     <button class="print-button" onclick="window.print()">
         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M6 9l6 6 6-6"/>
+            <polyline points="6 9 6 2 18 2 18 9"></polyline>
+            <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+            <rect x="6" y="14" width="12" height="8"></rect>
         </svg>
         Cetak Bukti
     </button>
