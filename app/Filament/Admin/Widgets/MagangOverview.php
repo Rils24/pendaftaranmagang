@@ -48,7 +48,7 @@ class MagangOverview extends BaseWidget
         
         // Status pendaftaran - cache terpisah karena bisa berubah
         $statusPendaftaran = Cache::remember($this->cachePrefix . 'status', 60, function() {
-            return Setting::first()?->status_pendaftaran ? 'Dibuka' : 'Ditutup';
+            return Setting::getCached()?->status_pendaftaran ? 'Dibuka' : 'Ditutup';
         });
         
         // Dapatkan kuota dari persyaratan magang terbaru yang aktif
@@ -98,7 +98,7 @@ class MagangOverview extends BaseWidget
             return $this->getRecentActivityOptimized();
         });
         
-        $isOpen = Setting::first()?->status_pendaftaran;
+        $isOpen = Setting::getCached()?->status_pendaftaran;
         
         return [
             // ROW 1 - STATISTIK UTAMA DENGAN VISUAL MENARIK

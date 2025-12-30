@@ -50,12 +50,14 @@ class PendaftaranMagangResource extends Resource
 
     public static function getNavigationBadge(): ?string
     {
-        return static::getModel()::where('status', 'pending')->count();
+        return \Illuminate\Support\Facades\Cache::remember('badge_pending_count', 60, function() {
+            return static::getModel()::where('status', 'pending')->count();
+        });
     }
 
     public static function getNavigationBadgeColor(): ?string
     {
-        $pendingCount = static::getModel()::where('status', 'pending')->count();
+        $pendingCount = (int) static::getNavigationBadge();
         
         if ($pendingCount > 10) {
             return 'danger';
@@ -662,23 +664,24 @@ class PendaftaranMagangResource extends Resource
             ])
             ->headerActions([
                 Action::make('toggle_pendaftaran')
-                    ->label(fn () => Setting::first()?->status_pendaftaran ? 'Tutup Pendaftaran' : 'Buka Pendaftaran')
-                    ->icon(fn () => Setting::first()?->status_pendaftaran ? 'heroicon-o-lock-closed' : 'heroicon-o-lock-open')
-                    ->color(fn () => Setting::first()?->status_pendaftaran ? 'danger' : 'success')
+                    ->label(fn () => Setting::getCached()?->status_pendaftaran ? 'Tutup Pendaftaran' : 'Buka Pendaftaran')
+                    ->icon(fn () => Setting::getCached()?->status_pendaftaran ? 'heroicon-o-lock-closed' : 'heroicon-o-lock-open')
+                    ->color(fn () => Setting::getCached()?->status_pendaftaran ? 'danger' : 'success')
                     ->requiresConfirmation()
-                    ->modalHeading(fn () => Setting::first()?->status_pendaftaran ? 'Tutup Pendaftaran Magang' : 'Buka Pendaftaran Magang')
-                    ->modalDescription(fn () => Setting::first()?->status_pendaftaran 
+                    ->modalHeading(fn () => Setting::getCached()?->status_pendaftaran ? 'Tutup Pendaftaran Magang' : 'Buka Pendaftaran Magang')
+                    ->modalDescription(fn () => Setting::getCached()?->status_pendaftaran 
                         ? 'Menutup pendaftaran akan mencegah mahasiswa baru mendaftar. Yakin ingin menutup pendaftaran?' 
                         : 'Membuka pendaftaran akan memungkinkan mahasiswa baru mendaftar. Yakin ingin membuka pendaftaran?')
-                    ->modalSubmitActionLabel(fn () => Setting::first()?->status_pendaftaran ? 'Ya, Tutup Pendaftaran' : 'Ya, Buka Pendaftaran')
+                    ->modalSubmitActionLabel(fn () => Setting::getCached()?->status_pendaftaran ? 'Ya, Tutup Pendaftaran' : 'Ya, Buka Pendaftaran')
                     ->action(function () {
-                        $setting = Setting::first();
+                        $setting = Setting::first(); // Still use first() for update action to be safe
                         if (!$setting) {
                             $setting = Setting::create(['status_pendaftaran' => 1]);
                         }
                         
                         $oldStatus = $setting->status_pendaftaran;
                         $setting->update(['status_pendaftaran' => !$oldStatus]);
+                        Setting::clearCache(); // Explicit clear after update
                         
                         Notification::make()
                             ->title($oldStatus ? 'Pendaftaran Ditutup' : 'Pendaftaran Dibuka')
@@ -748,6 +751,7 @@ class PendaftaranMagangResource extends Resource
                         } else {
                             $setting->update(['status_pendaftaran' => 1]);
                         }
+                        Setting::clearCache();
                         
                         Notification::make()
                             ->title('Pendaftaran Dibuka')
@@ -755,7 +759,7 @@ class PendaftaranMagangResource extends Resource
                             ->color('success')
                             ->send();
                     })
-                    ->visible(fn () => !Setting::first()?->status_pendaftaran),
+                    ->visible(fn () => !Setting::getCached()?->status_pendaftaran),
             ])
             ->recordClasses(fn (PendaftaranMagang $record) => match ($record->status) {
                 'pending' => 'border-l-4 border-warning-500',

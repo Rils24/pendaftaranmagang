@@ -19,16 +19,20 @@ class PendaftaranController extends Controller
     {
         $user = Auth::user();
 
-        // Ambil daftar universitas untuk dropdown dan bersihkan karakternya
-        $universitas = Universitas::orderBy('nama_universitas')->get();
-        
-        // Bersihkan karakter newline pada setiap record universitas
-        foreach ($universitas as $univ) {
-            $univ->nama_universitas = trim(preg_replace('/[\r\n\t]+/', '', $univ->nama_universitas));
-        }
+        // OPTIMIZED: Cache daftar universitas selama 1 jam
+        $universitas = \Illuminate\Support\Facades\Cache::remember('universitas_list', 3600, function() {
+            return Universitas::select('id', 'nama_universitas')
+                ->orderBy('nama_universitas')
+                ->get()
+                ->map(function($univ) {
+                    $univ->nama_universitas = trim(preg_replace('/[\r\n\t]+/', '', $univ->nama_universitas));
+                    return $univ;
+                });
+        });
 
-        // Cek apakah user memiliki pendaftaran sebelumnya
-        $pendaftaran = PendaftaranMagang::with('anggota')
+        // OPTIMIZED: Gunakan select untuk mengambil kolom yang diperlukan saja
+        $pendaftaran = PendaftaranMagang::with('anggota:id,pendaftaran_id,nama_anggota,nim_anggota,jurusan,email_anggota,no_hp_anggota')
+                        ->select('id', 'user_id', 'asal_kampus', 'jurusan', 'tanggal_mulai', 'tanggal_selesai', 'surat_pengantar', 'status', 'alasan_penolakan', 'created_at')
                         ->where('user_id', $user->id)
                         ->latest()
                         ->first();
@@ -42,8 +46,8 @@ class PendaftaranController extends Controller
         // Tambahkan logging untuk debug
         Log::info('Data jurusan dalam request:', ['jurusan' => $request->jurusan ?? 'Tidak ada data jurusan']);
         
-        // Cek apakah pendaftaran sedang ditutup
-        $setting = Setting::first();
+        // OPTIMIZED: Gunakan cached setting
+        $setting = Setting::getCached();
         if (!$setting || !$setting->status_pendaftaran) {
             return redirect()->back()->with('error', 'Pendaftaran saat ini sedang ditutup.');
         }

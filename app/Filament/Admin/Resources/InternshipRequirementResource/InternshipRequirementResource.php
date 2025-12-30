@@ -45,26 +45,21 @@ class InternshipRequirementResource extends Resource
     }
 
     // Fungsi helper untuk menghitung jumlah anggota saja (tanpa pendaftar utama)
+    // OPTIMIZED: Menggunakan satu query dengan JOIN alih-alih loop N+1
     private static function hitungTotalAnggota($periode)
     {
-        // Menghitung jumlah pendaftar yang diterima pada periode tertentu
-        $pendaftaranDiterima = PendaftaranMagang::where('status', 'diterima')
-            ->when($periode->deadline, function($query, $deadline) {
-                // Pendaftaran 3 bulan sebelum deadline
-                $startDate = Carbon::parse($deadline)->subMonths(3);
-                return $query->whereBetween('created_at', [$startDate, $deadline]);
-            })
-            ->get();
+        $startDate = $periode->deadline ? Carbon::parse($periode->deadline)->subMonths(3) : null;
         
-        // Hitung jumlah anggota tim saja (pendaftar utama tidak dihitung)
-        $totalAnggota = 0;
+        // Satu query untuk menghitung semua anggota
+        $query = \Illuminate\Support\Facades\DB::table('pendaftaran_magangs')
+            ->join('anggota_pendaftaran', 'pendaftaran_magangs.id', '=', 'anggota_pendaftaran.pendaftaran_id')
+            ->where('pendaftaran_magangs.status', 'diterima');
         
-        foreach ($pendaftaranDiterima as $pendaftaran) {
-            // Hanya menghitung anggota tim
-            $totalAnggota += $pendaftaran->anggota()->count();
+        if ($startDate && $periode->deadline) {
+            $query->whereBetween('pendaftaran_magangs.created_at', [$startDate, $periode->deadline]);
         }
         
-        return $totalAnggota;
+        return $query->count();
     }
 
     public static function form(Forms\Form $form): Forms\Form
@@ -263,8 +258,7 @@ class InternshipRequirementResource extends Resource
                 TextColumn::make('terisi')
                     ->label('Anggota Terisi')
                     ->getStateUsing(function (Model $record) {
-                        // Menghitung total anggota tim saja (tanpa pendaftar utama)
-                        $totalAnggota = self::hitungTotalAnggota($record);
+                        $totalAnggota = $record->total_anggota_count ?? 0;
                         
                         // Menampilkan persentase terisi jika ada kuota
                         $persentase = $record->quota > 0 ? round(($totalAnggota / $record->quota) * 100) : 0;
@@ -276,8 +270,7 @@ class InternshipRequirementResource extends Resource
                 TextColumn::make('available_quota')
                     ->label('Sisa Kuota')
                     ->getStateUsing(function (Model $record) {
-                        // Menghitung total anggota tim saja (tanpa pendaftar utama)
-                        $totalAnggota = self::hitungTotalAnggota($record);
+                        $totalAnggota = $record->total_anggota_count ?? 0;
                         
                         // Hitung sisa kuota
                         return max(0, $record->quota - $totalAnggota);
@@ -673,6 +666,15 @@ class InternshipRequirementResource extends Resource
     
     public static function getEloquentQuery(): Builder
     {
-        return parent::getEloquentQuery();
+        return parent::getEloquentQuery()
+            ->select('*')
+            ->selectRaw("(
+                SELECT COUNT(*) 
+                FROM anggota_pendaftaran 
+                JOIN pendaftaran_magangs ON pendaftaran_magangs.id = anggota_pendaftaran.pendaftaran_id 
+                WHERE pendaftaran_magangs.status = 'diterima' 
+                AND pendaftaran_magangs.created_at <= internship_requirements.deadline 
+                AND pendaftaran_magangs.created_at >= DATE_SUB(internship_requirements.deadline, INTERVAL 3 MONTH)
+            ) as total_anggota_count");
     }
 }
