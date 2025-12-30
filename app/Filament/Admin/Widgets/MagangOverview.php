@@ -7,6 +7,7 @@ use App\Models\Setting;
 use Filament\Widgets\StatsOverviewWidget as BaseWidget;
 use Filament\Widgets\StatsOverviewWidget\Stat;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 use Carbon\Carbon;
 use Illuminate\Support\HtmlString;
 use Illuminate\Support\Str;
@@ -14,8 +15,8 @@ use Illuminate\Support\Str;
 class MagangOverview extends BaseWidget
 {
     protected static ?int $sort = 1;
-    protected int $refreshInterval = 30; // Refresh lebih cepat - setiap 30 detik
-    protected static bool $isLazy = false; // Load widget langsung
+    protected int $refreshInterval = 60; // Refresh setiap 60 detik (lebih lama = lebih hemat resource)
+    protected static bool $isLazy = true; // Load widget secara lazy untuk performa lebih baik
 
     // Warna yang lebih cerah dan modern
     protected $chartColors = [
@@ -27,190 +28,53 @@ class MagangOverview extends BaseWidget
         'purple' => ['#8B5CF6', '#C4B5FD'],  // Violet
         'pink' => ['#EC4899', '#F9A8D4'],    // Pink
     ];
-
-    // Opsi chart dengan animasi dan styling yang lebih bagus
-    protected function getOptions(): array
-    {
-        return [
-            'chart' => [
-                'type' => 'area',
-                'height' => 100, // Tinggi chart ditingkatkan
-                'sparkline' => [
-                    'enabled' => true,
-                ],
-                'dropShadow' => [
-                    'enabled' => true,
-                    'blur' => 5,
-                    'opacity' => 0.3,
-                    'left' => 1,
-                    'top' => 1,
-                ],
-                'animations' => [
-                    'enabled' => true,
-                    'easing' => 'easeinout',
-                    'speed' => 800,
-                    'animateGradually' => [
-                        'enabled' => true,
-                        'delay' => 150
-                    ],
-                    'dynamicAnimation' => [
-                        'enabled' => true,
-                        'speed' => 350
-                    ]
-                ],
-                'toolbar' => [
-                    'show' => false,
-                ],
-            ],
-            'stroke' => [
-                'curve' => 'smooth',
-                'width' => 3,
-                'lineCap' => 'round',
-            ],
-            'fill' => [
-                'type' => 'gradient',
-                'gradient' => [
-                    'shadeIntensity' => 1,
-                    'opacityFrom' => 0.7,
-                    'opacityTo' => 0.2,
-                    'stops' => [0, 90, 100],
-                    'colorStops' => [
-                        [
-                            'offset' => 0,
-                            'color' => 'var(--chart-color-1)',
-                            'opacity' => 0.8
-                        ],
-                        [
-                            'offset' => 100,
-                            'color' => 'var(--chart-color-2)',
-                            'opacity' => 0.2
-                        ]
-                    ]
-                ]
-            ],
-            'grid' => [
-                'show' => false,
-                'padding' => [
-                    'top' => 5,
-                    'right' => 0,
-                    'bottom' => 0,
-                    'left' => 0
-                ]
-            ],
-            'tooltip' => [
-                'enabled' => true,
-                'style' => [
-                    'fontSize' => '12px',
-                    'fontFamily' => 'inherit'
-                ],
-                'theme' => 'light',
-                'x' => [
-                    'show' => false,
-                ],
-                'y' => [
-                    'formatter' => 'function(val) { return val + " pendaftar" }',
-                    'title' => [
-                        'formatter' => 'function(seriesName) { return "" }',
-                    ],
-                ],
-                'marker' => [
-                    'show' => true,
-                    'size' => 5,
-                ],
-                'fixed' => [
-                    'enabled' => false,
-                    'position' => 'topRight',
-                    'offsetX' => 0,
-                    'offsetY' => 0,
-                ],
-            ],
-            'dataLabels' => [
-                'enabled' => false
-            ],
-            'markers' => [
-                'size' => 0,
-                'strokeWidth' => 2,
-                'strokeColors' => 'var(--chart-color-1)',
-                'hover' => [
-                    'size' => 6,
-                ]
-            ],
-            'xaxis' => [
-                'labels' => [
-                    'show' => false
-                ],
-                'axisBorder' => [
-                    'show' => false
-                ],
-                'axisTicks' => [
-                    'show' => false
-                ]
-            ],
-            'yaxis' => [
-                'labels' => [
-                    'show' => false
-                ]
-            ],
-            'legend' => [
-                'show' => false
-            ],
-            'responsive' => [
-                [
-                    'breakpoint' => 768,
-                    'options' => [
-                        'chart' => [
-                            'height' => 80
-                        ]
-                    ]
-                ]
-            ]
-        ];
-    }
+    
+    // Cache key prefix
+    protected string $cachePrefix = 'magang_overview_';
+    protected int $cacheTTL = 300; // Cache selama 5 menit
 
     protected function getStats(): array
     {
-        // Menghitung total anggota magang (tanpa pendaftar utama)
-        $pendaftaran = PendaftaranMagang::withCount('anggota')->get();
+        // Gunakan cache untuk mengurangi query database
+        return Cache::remember($this->cachePrefix . 'stats', $this->cacheTTL, function () {
+            return $this->buildStats();
+        });
+    }
+
+    protected function buildStats(): array
+    {
+        // OPTIMIZED: Ambil semua data yang dibutuhkan dengan query yang efisien
+        $statsData = $this->getAggregatedStats();
         
-        // Inisialisasi variabel
-        $totalAnggota = 0;
-        $totalDiterimaAnggota = 0;
-        $totalDitolakAnggota = 0;
-        $totalPendingAnggota = 0;
-        
-        // Hitung total untuk masing-masing status
-        foreach ($pendaftaran as $daftar) {
-            // Hanya hitung jumlah anggota
-            $jumlahAnggota = $daftar->anggota_count;
-            $totalAnggota += $jumlahAnggota;
-            
-            if ($daftar->status == 'diterima') {
-                $totalDiterimaAnggota += $jumlahAnggota;
-            } elseif ($daftar->status == 'ditolak') {
-                $totalDitolakAnggota += $jumlahAnggota;
-            } elseif ($daftar->status == 'pending') {
-                $totalPendingAnggota += $jumlahAnggota;
-            }
-        }
+        // Status pendaftaran - cache terpisah karena bisa berubah
+        $statusPendaftaran = Cache::remember($this->cachePrefix . 'status', 60, function() {
+            return Setting::first()?->status_pendaftaran ? 'Dibuka' : 'Ditutup';
+        });
         
         // Dapatkan kuota dari persyaratan magang terbaru yang aktif
-        $latestRequirement = InternshipRequirement::where('is_active', 1)->latest()->first();
-        $kuotaTersedia = $latestRequirement ? $latestRequirement->quota - $totalDiterimaAnggota : 0;
+        $latestRequirement = Cache::remember($this->cachePrefix . 'requirement', $this->cacheTTL, function() {
+            return InternshipRequirement::where('is_active', 1)->latest()->first();
+        });
         
-        // Status pendaftaran
-        $statusPendaftaran = Setting::first()?->status_pendaftaran ? 'Dibuka' : 'Ditutup';
+        $totalAnggota = $statsData['total'];
+        $totalDiterimaAnggota = $statsData['diterima'];
+        $totalPendingAnggota = $statsData['pending'];
+        $totalDitolakAnggota = $statsData['ditolak'];
         
-        // Mendapatkan data bulanan untuk chart
-        $monthlyData = $this->getMonthlyDataWithTrend();
+        $kuotaTersedia = $latestRequirement ? max(0, $latestRequirement->quota - $totalDiterimaAnggota) : 0;
         
-        // Mendapatkan data mingguan untuk chart
-        $weeklyData = $this->getWeeklyTrendWithLabels();
+        // Mendapatkan data bulanan untuk chart - cached
+        $monthlyData = Cache::remember($this->cachePrefix . 'monthly', $this->cacheTTL, function() {
+            return $this->getMonthlyDataWithTrend();
+        });
+        
+        // Mendapatkan data mingguan untuk chart - cached
+        $weeklyData = Cache::remember($this->cachePrefix . 'weekly', $this->cacheTTL, function() {
+            return $this->getWeeklyTrendOptimized();
+        });
         
         // Mendapatkan distribusi status untuk chart
         $statusDistribution = $this->getStatusDistributionChart($totalDiterimaAnggota, $totalPendingAnggota, $totalDitolakAnggota);
-        
-        // Mendapatkan top kampus pendaftar
-        $kampusData = $this->getTopCampusesWithChart();
         
         // Hitung persentase dengan format yang lebih baik
         $persentaseDiterima = $totalAnggota > 0 ? round(($totalDiterimaAnggota / $totalAnggota) * 100, 1) : 0;
@@ -221,24 +85,23 @@ class MagangOverview extends BaseWidget
         $kuotaTerpakai = $latestRequirement && $latestRequirement->quota > 0 ? 
             round(($totalDiterimaAnggota / $latestRequirement->quota) * 100, 1) : 0;
         
-        // Hitung pertumbuhan bulanan
-        $pertumbuhanBulanan = $this->calculateMonthlyGrowth();
-        
         // Hitung prediksi kuota terisi
         $prediksiKuotaTerisi = $this->getPredictionData($latestRequirement, $totalDiterimaAnggota, $monthlyData['trend']);
         
-        // Hitung anggota baru hari ini
-        $anggotaHariIni = $this->getTodayRegistrations();
+        // Hitung anggota baru hari ini - cached dengan TTL lebih pendek
+        $anggotaHariIni = Cache::remember($this->cachePrefix . 'today', 60, function() {
+            return $this->getTodayRegistrationsOptimized();
+        });
         
-        // Statistik jurusan terpopuler
-        $jurusanPopuler = $this->getTopJurusan();
+        // Statistik aktivitas terbaru - cached
+        $aktivitasTerbaru = Cache::remember($this->cachePrefix . 'activity', 120, function() {
+            return $this->getRecentActivityOptimized();
+        });
         
-        // Statistik aktivitas terbaru
-        $aktivitasTerbaru = $this->getRecentActivity();
+        $isOpen = Setting::first()?->status_pendaftaran;
         
         return [
             // ROW 1 - STATISTIK UTAMA DENGAN VISUAL MENARIK
-            // Card Total Pendaftar - Dengan trend line dan sparkles
             Stat::make('Total Pendaftar Magang', $this->formatNumber($totalAnggota))
                 ->description($this->getTrendDescription($monthlyData['growth'], 'pendaftar', 'bulan ini'))
                 ->descriptionIcon($monthlyData['growth'] >= 0 ? 'heroicon-m-arrow-trending-up' : 'heroicon-m-arrow-trending-down')
@@ -250,7 +113,7 @@ class MagangOverview extends BaseWidget
                 ])
                 ->icon('heroicon-o-users'),
             
-            // Card Pendaftar Diterima - Dengan visual persentase
+            // Card Pendaftar Diterima
             Stat::make('Pendaftar Diterima', $this->formatNumber($totalDiterimaAnggota))
                 ->description($persentaseDiterima . '% dari total pendaftar')
                 ->descriptionIcon('heroicon-m-check-circle')
@@ -262,20 +125,18 @@ class MagangOverview extends BaseWidget
                 ])
                 ->icon('heroicon-o-check-badge'),
                 
-            // Card Kuota Magang - Dengan visual doughnut chart
+            // Card Kuota Magang
             Stat::make('Kuota Tersedia', $this->formatNumber($kuotaTersedia))
                 ->description('Terisi ' . $kuotaTerpakai . '% dari ' . ($latestRequirement ? $latestRequirement->quota : 0) . ' kuota')
                 ->descriptionIcon('heroicon-m-chart-pie')
                 ->chart([$totalDiterimaAnggota, max(0, $kuotaTersedia)])
                 ->color($kuotaTersedia > 0 ? 'success' : 'danger')
                 ->extraAttributes([
-                    'class' => 'bg-gradient-to-br from-white to-' . ($kuotaTersedia > 0 ? 'success' : 'danger') . '-50 dark:from-gray-800 dark:to-gray-900 rounded-2xl border border-' . ($kuotaTersedia > 0 ? 'success' : 'danger') . '-100 dark:border-' . ($kuotaTersedia > 0 ? 'success' : 'danger') . '-900 shadow-lg hover:shadow-' . ($kuotaTersedia > 0 ? 'success' : 'danger') . '-100/50 dark:hover:shadow-' . ($kuotaTersedia > 0 ? 'success' : 'danger') . '-900/50 transition-all duration-300',
-                    'style' => '--chart-color-1: ' . $this->chartColors[$kuotaTersedia > 0 ? 'success' : 'danger'][0] . '; --chart-color-2: ' . $this->chartColors[$kuotaTersedia > 0 ? 'success' : 'danger'][1] . ';',
+                    'class' => 'bg-gradient-to-br from-white to-' . ($kuotaTersedia > 0 ? 'success' : 'danger') . '-50 dark:from-gray-800 dark:to-gray-900 rounded-2xl border border-' . ($kuotaTersedia > 0 ? 'success' : 'danger') . '-100 dark:border-' . ($kuotaTersedia > 0 ? 'success' : 'danger') . '-900 shadow-lg',
                 ])
                 ->icon('heroicon-o-academic-cap'),
             
             // ROW 2 - DETAIL STATUS
-            // Card Status Distribusi - Dengan pie chart interaktif
             Stat::make('Status Distribusi', new HtmlString($this->createStatusDistributionHTML($totalDiterimaAnggota, $totalPendingAnggota, $totalDitolakAnggota)))
                 ->description(new HtmlString(
                     '<span class="inline-flex items-center"><span class="w-2 h-2 rounded-full bg-success-500 mr-1"></span> Diterima: ' . $persentaseDiterima . '%</span> &nbsp;' .
@@ -286,7 +147,7 @@ class MagangOverview extends BaseWidget
                 ->chart($statusDistribution['chart'])
                 ->color('warning')
                 ->extraAttributes([
-                    'class' => 'bg-gradient-to-br from-white to-gray-100 dark:from-gray-800 dark:to-gray-900 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-lg hover:shadow-gray-200/50 dark:hover:shadow-gray-700/50 transition-all duration-300',
+                    'class' => 'bg-gradient-to-br from-white to-gray-100 dark:from-gray-800 dark:to-gray-900 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-lg',
                 ])
                 ->icon('heroicon-o-chart-pie'),
                 
@@ -297,32 +158,28 @@ class MagangOverview extends BaseWidget
                 ->chart($statusDistribution['pending'])
                 ->color('warning')
                 ->extraAttributes([
-                    'class' => 'bg-gradient-to-br from-white to-warning-50 dark:from-gray-800 dark:to-gray-900 rounded-2xl border border-warning-100 dark:border-warning-900 shadow-lg hover:shadow-warning-100/50 dark:hover:shadow-warning-900/50 transition-all duration-300',
-                    'style' => '--chart-color-1: ' . $this->chartColors['warning'][0] . '; --chart-color-2: ' . $this->chartColors['warning'][1] . ';',
+                    'class' => 'bg-gradient-to-br from-white to-warning-50 dark:from-gray-800 dark:to-gray-900 rounded-2xl border border-warning-100 dark:border-warning-900 shadow-lg',
                 ])
                 ->icon('heroicon-o-clock'),
                 
-            // Card Aktivitas Terbaru - Dengan timeline visual
+            // Card Aktivitas Terbaru
             Stat::make('Aktivitas Terbaru', new HtmlString($aktivitasTerbaru['title']))
                 ->description(new HtmlString($aktivitasTerbaru['description']))
                 ->descriptionIcon('heroicon-m-clock')
                 ->color('info')
                 ->extraAttributes([
-                    'class' => 'bg-gradient-to-br from-white to-info-50 dark:from-gray-800 dark:to-gray-900 rounded-2xl border border-info-100 dark:border-info-900 shadow-lg hover:shadow-info-100/50 dark:hover:shadow-info-900/50 transition-all duration-300',
-                    'style' => '--chart-color-1: ' . $this->chartColors['info'][0] . '; --chart-color-2: ' . $this->chartColors['info'][1] . ';',
+                    'class' => 'bg-gradient-to-br from-white to-info-50 dark:from-gray-800 dark:to-gray-900 rounded-2xl border border-info-100 dark:border-info-900 shadow-lg',
                 ])
                 ->icon('heroicon-o-bell'),
             
             // ROW 3 - ANALISIS LANJUTAN
-            // Card Tren Mingguan - Dengan chart hari per hari
             Stat::make('Tren Mingguan', $this->formatNumber($weeklyData['total']))
                 ->description('Pendaftar 7 hari terakhir')
                 ->descriptionIcon('heroicon-m-calendar')
                 ->chart($weeklyData['data'])
                 ->color('info')
                 ->extraAttributes([
-                    'class' => 'bg-gradient-to-br from-white to-info-50 dark:from-gray-800 dark:to-gray-900 rounded-2xl border border-info-100 dark:border-info-900 shadow-lg hover:shadow-info-100/50 dark:hover:shadow-info-900/50 transition-all duration-300',
-                    'style' => '--chart-color-1: ' . $this->chartColors['info'][0] . '; --chart-color-2: ' . $this->chartColors['info'][1] . ';',
+                    'class' => 'bg-gradient-to-br from-white to-info-50 dark:from-gray-800 dark:to-gray-900 rounded-2xl border border-info-100 dark:border-info-900 shadow-lg',
                 ])
                 ->icon('heroicon-o-presentation-chart-line'),
             
@@ -333,33 +190,18 @@ class MagangOverview extends BaseWidget
                 ->chart($prediksiKuotaTerisi['chart'])
                 ->color($prediksiKuotaTerisi['color'])
                 ->extraAttributes([
-                    'class' => 'bg-gradient-to-br from-white to-' . $prediksiKuotaTerisi['color'] . '-50 dark:from-gray-800 dark:to-gray-900 rounded-2xl border border-' . $prediksiKuotaTerisi['color'] . '-100 dark:border-' . $prediksiKuotaTerisi['color'] . '-900 shadow-lg hover:shadow-' . $prediksiKuotaTerisi['color'] . '-100/50 dark:hover:shadow-' . $prediksiKuotaTerisi['color'] . '-900/50 transition-all duration-300',
-                    'style' => '--chart-color-1: ' . $this->chartColors[$prediksiKuotaTerisi['color']][0] . '; --chart-color-2: ' . $this->chartColors[$prediksiKuotaTerisi['color']][1] . ';',
+                    'class' => 'bg-gradient-to-br from-white to-' . $prediksiKuotaTerisi['color'] . '-50 dark:from-gray-800 dark:to-gray-900 rounded-2xl border border-' . $prediksiKuotaTerisi['color'] . '-100 dark:border-' . $prediksiKuotaTerisi['color'] . '-900 shadow-lg',
                 ])
                 ->icon('heroicon-o-chart-bar'),
             
-            // Card Jurusan Terpopuler
-            // Stat::make('Jurusan Terpopuler', new HtmlString($jurusanPopuler['title']))
-            //     ->description(new HtmlString($jurusanPopuler['description']))
-            //     ->descriptionIcon('heroicon-m-academic-cap')
-            //     ->chart($jurusanPopuler['chart'])
-            //     ->color('purple')
-            //     ->extraAttributes([
-            //         'class' => 'bg-gradient-to-br from-white to-purple-50 dark:from-gray-800 dark:to-gray-900 rounded-2xl border border-purple-100 dark:border-purple-900 shadow-lg hover:shadow-purple-100/50 dark:hover:shadow-purple-900/50 transition-all duration-300',
-            //         'style' => '--chart-color-1: ' . $this->chartColors['purple'][0] . '; --chart-color-2: ' . $this->chartColors['purple'][1] . ';',
-            //     ])
-            //     ->icon('heroicon-o-academic-cap'),
-            
-            // ROW 4 - INFORMASI SISTEM & STATISTIK TAMBAHAN
-            // Card Pendaftar Hari Ini
+            // ROW 4 - INFORMASI SISTEM
             Stat::make('Pendaftar Hari Ini', $this->formatNumber($anggotaHariIni['count']))
                 ->description($anggotaHariIni['trend'])
                 ->descriptionIcon($anggotaHariIni['trend_icon'])
                 ->chart($anggotaHariIni['chart'])
                 ->color($anggotaHariIni['color'])
                 ->extraAttributes([
-                    'class' => 'bg-gradient-to-br from-white to-' . $anggotaHariIni['color'] . '-50 dark:from-gray-800 dark:to-gray-900 rounded-2xl border border-' . $anggotaHariIni['color'] . '-100 dark:border-' . $anggotaHariIni['color'] . '-900 shadow-lg hover:shadow-' . $anggotaHariIni['color'] . '-100/50 dark:hover:shadow-' . $anggotaHariIni['color'] . '-900/50 transition-all duration-300',
-                    'style' => '--chart-color-1: ' . $this->chartColors[$anggotaHariIni['color']][0] . '; --chart-color-2: ' . $this->chartColors[$anggotaHariIni['color']][1] . ';',
+                    'class' => 'bg-gradient-to-br from-white to-' . $anggotaHariIni['color'] . '-50 dark:from-gray-800 dark:to-gray-900 rounded-2xl border border-' . $anggotaHariIni['color'] . '-100 dark:border-' . $anggotaHariIni['color'] . '-900 shadow-lg',
                 ])
                 ->icon('heroicon-o-calendar-days'),
             
@@ -367,12 +209,11 @@ class MagangOverview extends BaseWidget
             Stat::make('Status Pendaftaran', $statusPendaftaran)
                 ->description('Status penerimaan magang saat ini')
                 ->descriptionIcon('heroicon-m-cog')
-                ->color(Setting::first()?->status_pendaftaran ? 'success' : 'danger')
+                ->color($isOpen ? 'success' : 'danger')
                 ->extraAttributes([
-                    'class' => 'bg-gradient-to-br from-white to-' . (Setting::first()?->status_pendaftaran ? 'success' : 'danger') . '-50 dark:from-gray-800 dark:to-gray-900 rounded-2xl border border-' . (Setting::first()?->status_pendaftaran ? 'success' : 'danger') . '-100 dark:border-' . (Setting::first()?->status_pendaftaran ? 'success' : 'danger') . '-900 shadow-lg hover:shadow-' . (Setting::first()?->status_pendaftaran ? 'success' : 'danger') . '-100/50 dark:hover:shadow-' . (Setting::first()?->status_pendaftaran ? 'success' : 'danger') . '-900/50 transition-all duration-300',
-                    'style' => '--chart-color-1: ' . $this->chartColors[Setting::first()?->status_pendaftaran ? 'success' : 'danger'][0] . '; --chart-color-2: ' . $this->chartColors[Setting::first()?->status_pendaftaran ? 'success' : 'danger'][1] . ';',
+                    'class' => 'bg-gradient-to-br from-white to-' . ($isOpen ? 'success' : 'danger') . '-50 dark:from-gray-800 dark:to-gray-900 rounded-2xl border border-' . ($isOpen ? 'success' : 'danger') . '-100 dark:border-' . ($isOpen ? 'success' : 'danger') . '-900 shadow-lg',
                 ])
-                ->icon('heroicon-o-' . (Setting::first()?->status_pendaftaran ? 'lock-open' : 'lock-closed')),
+                ->icon('heroicon-o-' . ($isOpen ? 'lock-open' : 'lock-closed')),
                 
             // Card Periode Magang
             Stat::make('Periode Magang Aktif', $latestRequirement ? $latestRequirement->period : '-')
@@ -380,16 +221,61 @@ class MagangOverview extends BaseWidget
                 ->descriptionIcon('heroicon-m-calendar')
                 ->color('pink')
                 ->extraAttributes([
-                    'class' => 'bg-gradient-to-br from-white to-pink-50 dark:from-gray-800 dark:to-gray-900 rounded-2xl border border-pink-100 dark:border-pink-900 shadow-lg hover:shadow-pink-100/50 dark:hover:shadow-pink-900/50 transition-all duration-300',
-                    'style' => '--chart-color-1: ' . $this->chartColors['pink'][0] . '; --chart-color-2: ' . $this->chartColors['pink'][1] . ';',
+                    'class' => 'bg-gradient-to-br from-white to-pink-50 dark:from-gray-800 dark:to-gray-900 rounded-2xl border border-pink-100 dark:border-pink-900 shadow-lg',
                 ])
                 ->icon('heroicon-o-calendar'),
         ];
     }
     
+    /**
+     * OPTIMIZED: Mengambil semua statistik agregat dalam satu query
+     */
+    private function getAggregatedStats(): array
+    {
+        $stats = DB::table('pendaftaran_magangs')
+            ->selectRaw("
+                SUM(CASE WHEN status = 'diterima' THEN (SELECT COUNT(*) FROM anggota_pendaftaran WHERE pendaftaran_id = pendaftaran_magangs.id) ELSE 0 END) as diterima,
+                SUM(CASE WHEN status = 'pending' THEN (SELECT COUNT(*) FROM anggota_pendaftaran WHERE pendaftaran_id = pendaftaran_magangs.id) ELSE 0 END) as pending,
+                SUM(CASE WHEN status = 'ditolak' THEN (SELECT COUNT(*) FROM anggota_pendaftaran WHERE pendaftaran_id = pendaftaran_magangs.id) ELSE 0 END) as ditolak
+            ")
+            ->first();
+        
+        // Jika query subselect tidak bekerja dengan baik, gunakan pendekatan alternatif
+        if (!$stats || ($stats->diterima === null && $stats->pending === null && $stats->ditolak === null)) {
+            $stats = $this->getAggregatedStatsFallback();
+        }
+        
+        $diterima = (int) ($stats->diterima ?? 0);
+        $pending = (int) ($stats->pending ?? 0);
+        $ditolak = (int) ($stats->ditolak ?? 0);
+        
+        return [
+            'diterima' => $diterima,
+            'pending' => $pending,
+            'ditolak' => $ditolak,
+            'total' => $diterima + $pending + $ditolak,
+        ];
+    }
+    
+    /**
+     * Fallback method jika query optimized tidak bekerja
+     */
+    private function getAggregatedStatsFallback(): object
+    {
+        $result = DB::table('pendaftaran_magangs')
+            ->join('anggota_pendaftaran', 'pendaftaran_magangs.id', '=', 'anggota_pendaftaran.pendaftaran_id')
+            ->selectRaw("
+                SUM(CASE WHEN pendaftaran_magangs.status = 'diterima' THEN 1 ELSE 0 END) as diterima,
+                SUM(CASE WHEN pendaftaran_magangs.status = 'pending' THEN 1 ELSE 0 END) as pending,
+                SUM(CASE WHEN pendaftaran_magangs.status = 'ditolak' THEN 1 ELSE 0 END) as ditolak
+            ")
+            ->first();
+            
+        return $result ?? (object)['diterima' => 0, 'pending' => 0, 'ditolak' => 0];
+    }
+    
     // HELPER FUNCTIONS
     
-    // Format angka untuk tampilan yang lebih bagus
     private function formatNumber($number): string 
     {
         if ($number >= 1000) {
@@ -398,7 +284,6 @@ class MagangOverview extends BaseWidget
         return (string) $number;
     }
     
-    // Mendapatkan deskripsi trend
     private function getTrendDescription($value, $label, $period): string 
     {
         if ($value === 0) {
@@ -409,7 +294,9 @@ class MagangOverview extends BaseWidget
         return "$prefix$value% $label $period";
     }
     
-    // Mendapatkan data bulanan dengan trend
+    /**
+     * OPTIMIZED: Mendapatkan data bulanan dengan satu query
+     */
     private function getMonthlyDataWithTrend(): array 
     {
         $anggotaPerBulan = DB::table('pendaftaran_magangs')
@@ -420,10 +307,7 @@ class MagangOverview extends BaseWidget
             ->get();
             
         // Format data untuk chart
-        $chartData = [];
-        for ($i = 1; $i <= 12; $i++) {
-            $chartData[$i] = 0;
-        }
+        $chartData = array_fill(1, 12, 0);
         
         foreach ($anggotaPerBulan as $data) {
             $chartData[$data->bulan] = $data->total_anggota;
@@ -431,11 +315,7 @@ class MagangOverview extends BaseWidget
         
         // Hitung trend bulan ini vs bulan lalu
         $currentMonth = (int) date('n');
-        $lastMonth = $currentMonth - 1;
-        
-        if ($lastMonth < 1) {
-            $lastMonth = 12;
-        }
+        $lastMonth = $currentMonth - 1 ?: 12;
         
         $currentMonthValue = $chartData[$currentMonth] ?? 0;
         $lastMonthValue = $chartData[$lastMonth] ?? 0;
@@ -445,44 +325,50 @@ class MagangOverview extends BaseWidget
         if ($lastMonthValue > 0) {
             $growth = round((($currentMonthValue - $lastMonthValue) / $lastMonthValue) * 100);
         } elseif ($currentMonthValue > 0) {
-            $growth = 100; // Jika bulan lalu 0 dan bulan ini ada nilai, berarti pertumbuhan 100%
+            $growth = 100;
         }
         
         // Pastikan minimal ada angka untuk chart
         if (array_sum($chartData) == 0) {
-            $chartData = [5, 8, 12, 8, 10, 12, 15, 18, 16, 23, 15, 20];
+            $chartData = [1 => 5, 2 => 8, 3 => 12, 4 => 8, 5 => 10, 6 => 12, 7 => 15, 8 => 18, 9 => 16, 10 => 23, 11 => 15, 12 => 20];
         }
         
-        // Konversi ke array untuk chart
         return [
             'chartData' => array_values($chartData),
             'growth' => $growth,
             'currentMonth' => $currentMonthValue,
             'lastMonth' => $lastMonthValue,
-            'trend' => array_values($chartData), // Untuk analisis tren
+            'trend' => array_values($chartData),
         ];
     }
     
-    // Mendapatkan tren mingguan dengan label
-    private function getWeeklyTrendWithLabels(): array 
+    /**
+     * OPTIMIZED: Mendapatkan tren mingguan dengan satu query
+     */
+    private function getWeeklyTrendOptimized(): array 
     {
-        $startDate = Carbon::now()->subDays(6);
-        $endDate = Carbon::now();
+        $startDate = Carbon::now()->subDays(6)->startOfDay();
+        $endDate = Carbon::now()->endOfDay();
+        
+        // Satu query untuk semua data mingguan
+        $dailyData = DB::table('pendaftaran_magangs')
+            ->join('anggota_pendaftaran', 'pendaftaran_magangs.id', '=', 'anggota_pendaftaran.pendaftaran_id')
+            ->select(DB::raw('DATE(pendaftaran_magangs.created_at) as tanggal'), DB::raw('COUNT(*) as total'))
+            ->whereBetween('pendaftaran_magangs.created_at', [$startDate, $endDate])
+            ->groupBy(DB::raw('DATE(pendaftaran_magangs.created_at)'))
+            ->pluck('total', 'tanggal');
         
         $results = [];
         $labels = [];
         $total = 0;
         
-        for ($date = $startDate->copy(); $date->lte($endDate); $date->addDay()) {
-            $currentDate = $date->copy();
+        for ($i = 6; $i >= 0; $i--) {
+            $date = Carbon::now()->subDays($i);
+            $dateKey = $date->format('Y-m-d');
+            $count = $dailyData[$dateKey] ?? 0;
             
-            $count = DB::table('pendaftaran_magangs')
-                ->join('anggota_pendaftaran', 'pendaftaran_magangs.id', '=', 'anggota_pendaftaran.pendaftaran_id')
-                ->whereDate('pendaftaran_magangs.created_at', $currentDate)
-                ->count();
-                
             $results[] = $count;
-            $labels[] = $currentDate->format('D');
+            $labels[] = $date->format('D');
             $total += $count;
         }
         
@@ -499,10 +385,8 @@ class MagangOverview extends BaseWidget
         ];
     }
     
-    // Mendapatkan distribusi status untuk chart
     private function getStatusDistributionChart($diterima, $pending, $ditolak): array 
     {
-        // Jika semua data kosong, buat dummy data agar chart tetap menarik
         if ($diterima == 0 && $pending == 0 && $ditolak == 0) {
             $diterima = 10;
             $pending = 5;
@@ -517,15 +401,12 @@ class MagangOverview extends BaseWidget
         ];
     }
     
-    // Membuat chart single value dengan animasi yang bagus
     private function createSingleValueChart($value): array 
     {
-        // Buat chart yang menarik dengan pola naik turun
         $base = max($value, 1);
         $result = [];
         
         for ($i = 0; $i < 12; $i++) {
-            // Variasi +/- 30% untuk membuat visual yang menarik
             $variation = mt_rand(-30, 30) / 100;
             $result[] = max(round($base * (1 + $variation)), 1);
         }
@@ -533,53 +414,6 @@ class MagangOverview extends BaseWidget
         return $result;
     }
     
-    // Mendapatkan kampus terpopuler untuk chart
-    private function getTopCampusesWithChart(): array 
-    {
-        $kampusPopuler = DB::table('pendaftaran_magangs')
-            ->join('anggota_pendaftaran', 'pendaftaran_magangs.id', '=', 'anggota_pendaftaran.pendaftaran_id')
-            ->select('pendaftaran_magangs.asal_kampus', DB::raw('COUNT(anggota_pendaftaran.id) as total_anggota'))
-            ->groupBy('pendaftaran_magangs.asal_kampus')
-            ->orderByDesc('total_anggota')
-            ->limit(5)
-            ->get();
-            
-        $labels = [];
-        $data = [];
-        
-        foreach ($kampusPopuler as $kampus) {
-            $labels[] = $this->shortenCampusName($kampus->asal_kampus);
-            $data[] = $kampus->total_anggota;
-        }
-        
-        // Pastikan minimal ada data untuk chart
-        if (count($data) == 0) {
-            $labels = ['Univ A', 'Univ B', 'Univ C', 'Univ D', 'Univ E'];
-            $data = [12, 10, 8, 6, 4];
-        }
-        
-        return [
-            'labels' => $labels,
-            'data' => $data,
-            'chart' => $data,
-            'topKampus' => $labels[0] ?? 'Tidak ada data'
-        ];
-    }
-    
-    // Hitung pertumbuhan bulanan
-    private function calculateMonthlyGrowth(): array 
-    {
-        $data = $this->getMonthlyDataWithTrend();
-        
-        return [
-            'value' => $data['growth'],
-            'trend' => $data['growth'] >= 0 ? 'up' : 'down',
-            'color' => $data['growth'] >= 0 ? 'success' : 'danger',
-            'icon' => $data['growth'] >= 0 ? 'heroicon-m-arrow-trending-up' : 'heroicon-m-arrow-trending-down',
-        ];
-    }
-    
-    // Mendapatkan data prediksi kuota terisi
     private function getPredictionData($requirement, $currentFilled, $trendData): array 
     {
         if (!$requirement || $requirement->quota == 0) {
@@ -594,24 +428,16 @@ class MagangOverview extends BaseWidget
         $quota = $requirement->quota;
         $currentPercentage = round(($currentFilled / $quota) * 100, 1);
         
-        // Hitung rata-rata tren
         $lastThreeMonths = array_slice($trendData, -3);
         $avgMonthlyGrowth = count($lastThreeMonths) > 0 ? array_sum($lastThreeMonths) / count($lastThreeMonths) : 0;
         
-        // Prediksi jumlah bulan untuk memenuhi kuota
         $remaining = $quota - $currentFilled;
         $monthsNeeded = $avgMonthlyGrowth > 0 ? ceil($remaining / $avgMonthlyGrowth) : 12;
-        
-        // Batasi prediksi maksimal 12 bulan
         $monthsNeeded = min($monthsNeeded, 12);
         
-        // Hitung tanggal prediksi
         $predictionDate = Carbon::now()->addMonths($monthsNeeded);
-        
-        // Hitung persentase prediksi
         $predictedPercentage = min(100, $currentPercentage + ($avgMonthlyGrowth / $quota * 100 * $monthsNeeded));
         
-        // Warna berdasarkan seberapa cepat kuota terpenuhi
         $color = 'info';
         if ($monthsNeeded <= 1) {
             $color = 'success';
@@ -623,38 +449,35 @@ class MagangOverview extends BaseWidget
             $color = 'danger';
         }
         
-        // Data untuk chart
-        $chartData = [
-            round($predictedPercentage),
-            max(0, 100 - round($predictedPercentage))
-        ];
-        
         return [
             'percentage' => round($predictedPercentage),
             'date' => $predictionDate->format('d M Y'),
-            'chart' => $chartData,
+            'chart' => [round($predictedPercentage), max(0, 100 - round($predictedPercentage))],
             'color' => $color,
             'months' => $monthsNeeded
         ];
     }
     
-    // Mendapatkan registrasi hari ini
-    private function getTodayRegistrations(): array 
+    /**
+     * OPTIMIZED: Mendapatkan registrasi hari ini dengan query yang lebih efisien
+     */
+    private function getTodayRegistrationsOptimized(): array 
     {
         $today = Carbon::today();
         $yesterday = Carbon::yesterday();
         
-        $todayCount = DB::table('pendaftaran_magangs')
+        // Satu query untuk kedua tanggal
+        $counts = DB::table('pendaftaran_magangs')
             ->join('anggota_pendaftaran', 'pendaftaran_magangs.id', '=', 'anggota_pendaftaran.pendaftaran_id')
-            ->whereDate('pendaftaran_magangs.created_at', $today)
-            ->count();
+            ->selectRaw("
+                SUM(CASE WHEN DATE(pendaftaran_magangs.created_at) = ? THEN 1 ELSE 0 END) as today_count,
+                SUM(CASE WHEN DATE(pendaftaran_magangs.created_at) = ? THEN 1 ELSE 0 END) as yesterday_count
+            ", [$today->format('Y-m-d'), $yesterday->format('Y-m-d')])
+            ->first();
             
-        $yesterdayCount = DB::table('pendaftaran_magangs')
-            ->join('anggota_pendaftaran', 'pendaftaran_magangs.id', '=', 'anggota_pendaftaran.pendaftaran_id')
-            ->whereDate('pendaftaran_magangs.created_at', $yesterday)
-            ->count();
+        $todayCount = (int) ($counts->today_count ?? 0);
+        $yesterdayCount = (int) ($counts->yesterday_count ?? 0);
             
-        // Hitung persentase perubahan
         $percentChange = 0;
         if ($yesterdayCount > 0) {
             $percentChange = round((($todayCount - $yesterdayCount) / $yesterdayCount) * 100);
@@ -669,24 +492,8 @@ class MagangOverview extends BaseWidget
         $trendIcon = $percentChange >= 0 ? 'heroicon-m-arrow-trending-up' : 'heroicon-m-arrow-trending-down';
         $color = $percentChange > 0 ? 'success' : ($percentChange < 0 ? 'danger' : 'info');
         
-        // Data untuk chart
-        $hourlyData = [];
-        for ($i = 0; $i < 24; $i += 2) {
-            $start = Carbon::today()->addHours($i);
-            $end = Carbon::today()->addHours($i + 2);
-            
-            $count = DB::table('pendaftaran_magangs')
-                ->join('anggota_pendaftaran', 'pendaftaran_magangs.id', '=', 'anggota_pendaftaran.pendaftaran_id')
-                ->whereBetween('pendaftaran_magangs.created_at', [$start, $end])
-                ->count();
-                
-            $hourlyData[] = $count;
-        }
-        
-        // Pastikan minimal ada data untuk chart
-        if (array_sum($hourlyData) == 0) {
-            $hourlyData = [0, 1, 2, 1, 0, 0, 1, 3, 2, 1, 0, 0];
-        }
+        // Simple chart data tanpa query tambahan
+        $hourlyData = [0, 1, 2, 1, 0, 0, 1, max(1, $todayCount), 2, 1, 0, 0];
         
         return [
             'count' => $todayCount,
@@ -697,51 +504,13 @@ class MagangOverview extends BaseWidget
         ];
     }
     
-    // Mendapatkan statistik jurusan terpopuler
-    private function getTopJurusan(): array 
+    /**
+     * OPTIMIZED: Mendapatkan aktivitas terbaru dengan eager loading
+     */
+    private function getRecentActivityOptimized(): array 
     {
-        $jurusanPopuler = DB::table('pendaftaran_magangs')
-            ->join('anggota_pendaftaran', 'pendaftaran_magangs.id', '=', 'anggota_pendaftaran.pendaftaran_id')
-            ->select('pendaftaran_magangs.jurusan', DB::raw('COUNT(anggota_pendaftaran.id) as total'))
-            ->groupBy('pendaftaran_magangs.jurusan')
-            ->orderByDesc('total')
-            ->limit(3)
-            ->get();
-            
-        if ($jurusanPopuler->isEmpty()) {
-            return [
-                'title' => 'Belum ada data',
-                'description' => 'Belum ada pendaftar dari jurusan manapun',
-                'chart' => [5, 3, 2, 1, 0, 0]
-            ];
-        }
-        
-        $topJurusan = $jurusanPopuler->first();
-        $chartData = [];
-        $descItems = [];
-        
-        foreach ($jurusanPopuler as $jurusan) {
-            $chartData[] = $jurusan->total;
-            $cleanJurusan = ucwords(strtolower(trim($jurusan->jurusan)));
-            $descItems[] = "<span class='font-medium'>{$cleanJurusan}</span>: {$jurusan->total} pendaftar";
-        }
-        
-        // Tambahkan dummy data untuk chart yang lebih menarik
-        while (count($chartData) < 6) {
-            $chartData[] = 0;
-        }
-        
-        return [
-            'title' => ucwords(strtolower($topJurusan->jurusan)),
-            'description' => implode(' | ', $descItems),
-            'chart' => $chartData
-        ];
-    }
-    
-    // Mendapatkan aktivitas terbaru
-    private function getRecentActivity(): array 
-    {
-        $recentActivities = PendaftaranMagang::with(['user', 'anggota'])
+        $recentActivities = PendaftaranMagang::with(['user'])
+            ->withCount('anggota')
             ->latest()
             ->limit(3)
             ->get();
@@ -764,15 +533,16 @@ class MagangOverview extends BaseWidget
                 default => '<span class="text-warning-500 font-medium">pending</span>',
             };
             
-            $anggotaCount = $activity->anggota->count();
-            $userInitial = strtoupper(substr($activity->user->name ?? 'A', 0, 1));
+            $userName = $activity->user->name ?? 'Unknown';
+            $userInitial = strtoupper(substr($userName, 0, 1));
+            $anggotaCount = $activity->anggota_count;
+            $activityTimeAgo = $activity->created_at->diffForHumans();
             
-            $timeAgo = $activity->created_at->diffForHumans();
             $activityItems[] = "<div class='flex items-start gap-2 mb-1'>
                 <div class='w-6 h-6 rounded-full bg-info-500 text-white flex items-center justify-center font-bold text-xs'>{$userInitial}</div>
                 <div>
-                    <span class='font-medium'>{$activity->user->name}</span> mendaftar dengan {$anggotaCount} anggota ({$status})
-                    <div class='text-xs text-gray-500'>{$timeAgo}</div>
+                    <span class='font-medium'>{$userName}</span> mendaftar dengan {$anggotaCount} anggota ({$status})
+                    <div class='text-xs text-gray-500'>{$activityTimeAgo}</div>
                 </div>
             </div>";
         }
@@ -783,11 +553,10 @@ class MagangOverview extends BaseWidget
         ];
     }
     
-    // Membuat HTML untuk status distribusi
     private function createStatusDistributionHTML($diterima, $pending, $ditolak): string 
     {
         $total = $diterima + $pending + $ditolak;
-        if ($total == 0) $total = 1; // Hindari division by zero
+        if ($total == 0) $total = 1;
         
         $persentaseDiterima = round(($diterima / $total) * 100);
         $persentasePending = round(($pending / $total) * 100);
@@ -805,29 +574,43 @@ class MagangOverview extends BaseWidget
         </div>";
     }
     
-    // Fungsi helper untuk mempersingkat nama kampus
     private function shortenCampusName(string $name): string 
     {
-        // Memotong nama kampus yang panjang
-        $name = preg_replace('/\\\\r\\\\n$/', '', $name);
+        $name = trim($name);
         
-        if (strlen($name) > 25) {
-            $words = explode(' ', $name);
-            $acronym = '';
-            
-            foreach ($words as $word) {
-                if (strlen($word) > 0 && ctype_upper($word[0])) {
-                    $acronym .= $word[0];
-                }
-            }
-            
-            if (strlen($acronym) >= 3) {
-                return $acronym;
-            }
-            
-            return substr($name, 0, 25) . '...';
+        $replacements = [
+            'Universitas' => 'U.',
+            'Institut' => 'I.',
+            'Politeknik' => 'P.',
+            'Sekolah Tinggi' => 'ST.',
+            'Akademi' => 'A.',
+            'Indonesia' => 'Ind.',
+            'Negeri' => 'N.',
+        ];
+        
+        foreach ($replacements as $search => $replace) {
+            $name = str_ireplace($search, $replace, $name);
+        }
+        
+        if (strlen($name) > 20) {
+            $name = substr($name, 0, 17) . '...';
         }
         
         return $name;
+    }
+    
+    /**
+     * Clear all caches for this widget
+     */
+    public static function clearCache(): void
+    {
+        $prefix = 'magang_overview_';
+        Cache::forget($prefix . 'stats');
+        Cache::forget($prefix . 'status');
+        Cache::forget($prefix . 'requirement');
+        Cache::forget($prefix . 'monthly');
+        Cache::forget($prefix . 'weekly');
+        Cache::forget($prefix . 'today');
+        Cache::forget($prefix . 'activity');
     }
 }

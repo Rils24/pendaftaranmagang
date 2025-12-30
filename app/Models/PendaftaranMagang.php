@@ -32,12 +32,13 @@ class PendaftaranMagang extends Model
         'tanggal_selesai' => 'date',
     ];
     
+    // Removed 'periode_info' from appends to avoid N+1 query problem
+    // periode_info accessor runs heavy database queries every time model is accessed
     protected $appends = [
         'durasi_magang',
         'durasi_minggu', 
         'durasi_bulan',
         'status_label',
-        'periode_info'
     ];
 
     /**
